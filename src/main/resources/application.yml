@@ -1,0 +1,66 @@
+spring:
+  application:
+    name: bookmark
+  profiles:
+    # Default profile uses H2 file mode (no Docker/Postgres install required).
+    # Switch to PostgreSQL with: --spring.profiles.active=postgres
+    default: local
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            scope:
+              - email
+              - profile
+              - openid
+
+server:
+  port: 8081
+
+app:
+  frontend:
+    url: ${FRONTEND_URL:http://localhost:5173}
+
+---
+spring:
+  config:
+    activate:
+      on-profile: local
+  datasource:
+    url: jdbc:h2:file:./data/bookmark;AUTO_SERVER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+---
+spring:
+  config:
+    activate:
+      on-profile: postgres
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:bookmark}
+    driver-class-name: org.postgresql.Driver
+    username: ${DB_USERNAME:bookmark}
+    password: ${DB_PASSWORD:bookmark_dev_pw}
+  jpa:
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
