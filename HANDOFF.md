@@ -194,9 +194,22 @@
 - `@theme` 안에 정의된 변수는 자동으로 Tailwind 유틸리티가 됨
 
 #### 메모리 (Claude memory file)
-사용자별 메모리는 [`C:\Users\ds\.claude\projects\C--Users-ds-Desktop----bookmark\memory\`](C:/Users/ds/.claude/projects/C--Users-ds-Desktop----bookmark/memory/)에 저장됨:
-- `MEMORY.md` — 인덱스
-- `project_vision.md` — 북극성, v1.0 종료 조건, 비주얼 디자인, 수익화 훅, 다중 도서관 미래, 창고 정책, Chrome import 정책 — **v2 다중 도서관 채택 결정, 창고는 user 단위 1:1 유지** 등 중요 결정 다 들어있음
+**중요**: Claude Code의 메모리는 PC별로 로컬에 저장됩니다 (`~/.claude/projects/<key>/memory/`). 다른 PC에서 새 Claude 세션을 시작하면 비어있는 메모리로 시작합니다.
+
+이 프로젝트는 메모리의 **export 사본**을 [`.claude/memory/`](.claude/memory/) 디렉토리에 함께 commit합니다:
+- [`.claude/memory/MEMORY.md`](.claude/memory/MEMORY.md) — 인덱스
+- [`.claude/memory/project_vision.md`](.claude/memory/project_vision.md) — **북극성, v1.0 종료 조건, 비주얼 디자인, 수익화 훅, v2 다중 도서관, 창고/import 정책** 등 핵심 결정사항 전부
+
+##### 다른 PC에서 Claude 메모리 부트스트랩하기
+1. repo clone 후, Claude Code에서 이 프로젝트 디렉토리를 열기
+2. 아래 한 줄로 메모리 위치를 확인 (Claude가 자동으로 알려주거나, "memory 디렉토리 어디?"라고 물어보면 됨)
+3. `.claude/memory/` 의 두 파일을 그 위치(`~/.claude/projects/<해당키>/memory/`)에 복사
+4. 새 Claude 세션은 자동으로 이 메모리를 로드함
+
+또는 Claude에게 "**`.claude/memory/`의 파일들을 내 Claude 메모리에 임포트해줘**"라고 요청하면 처리해줍니다.
+
+##### 메모리 갱신 시 동기화
+Claude가 메모리(`~/.claude/.../memory/...`)를 업데이트하면, 일과 끝에 `.claude/memory/`로 export 복사해서 commit해야 다른 PC에서도 최신 상태로 이어집니다. handoff-prompt 실행 시 자동으로 점검됩니다.
 
 #### 임시/하드코딩
 - [LibraryPage.tsx](frontend/src/pages/LibraryPage.tsx)의 `PixiPlaceholder` 컴포넌트 — Pixi.js 들어오면 제거

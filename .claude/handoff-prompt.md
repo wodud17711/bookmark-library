@@ -45,17 +45,27 @@
 - 코드의 핵심 변경점은 파일 경로와 함수명을 명시
 - 과거 날짜 섹션은 그대로 두고, 오래된 건(2주 이상) 간단히 압축만 해줘
 
-## 3. 커밋 준비 점검
+## 3. 메모리 동기화
 
-HANDOFF.md를 다 쓴 다음에 아래도 같이 확인해줘:
+Claude Code 메모리는 PC별 로컬(`~/.claude/projects/<key>/memory/`)에 저장돼서 다른 PC로 안 넘어가. 그래서 **로컬 메모리의 변경사항을 repo의 `.claude/memory/`로 export 복사**해줘:
+
+- 로컬 메모리 디렉토리에서 모든 `.md` 파일을 읽어서, 같은 이름으로 `.claude/memory/` 에 복사
+- 복사 시 frontmatter의 `originSessionId` 같은 session-specific 메타데이터는 제거
+- 날짜성으로 stale해진 표현(예: "v1.0에서 의도적 제외" 했던 것이 이제 구현됨)은 현재 상태에 맞게 갱신
+- 한 줄 헤더로 "이 파일은 export 사본임 — 부트스트랩 절차는 HANDOFF.md 참고" 라는 안내 추가
+
+## 4. 커밋 준비 점검
+
+HANDOFF.md를 다 쓰고 메모리 export까지 마친 다음 아래 확인:
 
 - `.gitignore`에 `.env`, `.claude/settings.local.json` 같은 민감 파일이 빠져있지 않은지
+- `.claude/handoff-prompt.md`와 `.claude/memory/*.md` 는 트래킹되는지 (ignored 아닌지)
 - 커밋하면 안 될 파일(API 키, 토큰, 개인 경로)이 변경 목록에 섞여있지 않은지
 - `git status`로 추적되지 않은 파일 중 빠뜨리면 안 되는 게 있는지
 
 문제 있으면 알려주고, 없으면 "커밋 준비 완료" 라고 보고해줘.
 
-## 4. 마지막 출력
+## 5. 마지막 출력
 
 작업이 다 끝나면 아래 명령어를 그대로 보여줘 (내가 복사해서 실행할 거야):
 
