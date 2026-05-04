@@ -1,5 +1,6 @@
 package com.google.bookmark.config;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
@@ -30,6 +31,7 @@ import java.util.Map;
  * Korean messages, so exposing them is safe.
  */
 @RestControllerAdvice
+@Slf4j
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(ResponseStatusException.class)
@@ -44,5 +46,23 @@ public class GlobalExceptionHandler {
         body.put("error", fallbackPhrase);
         body.put("message", (reason == null || reason.isBlank()) ? fallbackPhrase : reason);
         return ResponseEntity.status(statusCode).body(body);
+    }
+
+    /**
+     * Catch-all for exceptions we didn't model with ResponseStatusException
+     * (NPE, DataIntegrityViolation, IllegalArgument, etc.). Logs the full
+     * stack trace server-side for debugging, but returns a generic Korean
+     * message to the client so internal details (table names, file paths,
+     * library code) never leak through error bodies.
+     */
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<Map<String, Object>> handleUnexpected(Exception ex) {
+        log.error("Unhandled exception in request", ex);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("timestamp", Instant.now().toString());
+        body.put("status", HttpStatus.INTERNAL_SERVER_ERROR.value());
+        body.put("error", HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase());
+        body.put("message", "서버에 일시적인 문제가 발생했어요. 잠시 후 다시 시도해주세요.");
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(body);
     }
 }

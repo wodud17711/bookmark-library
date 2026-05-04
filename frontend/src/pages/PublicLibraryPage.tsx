@@ -155,7 +155,7 @@ function PublicLibraryView({ library }: { library: Library }) {
 
   return (
     <div className="min-h-full flex flex-col">
-      <PublicHeader library={library} onReport={() => setReportOpen(true)} />
+      <PublicHeader library={library} />
 
       <main className="flex-1 max-w-6xl w-full mx-auto px-6 py-10 space-y-12">
         <PixiLibraryScene
@@ -219,7 +219,7 @@ function PublicLibraryView({ library }: { library: Library }) {
           내 도서관 만들기
         </Button>
         <p className="mt-6 text-xs text-(--color-ink-faint)">📚 북마크 도서관</p>
-        <p className="mt-2 text-xs text-(--color-ink-faint) flex items-center justify-center gap-3">
+        <p className="mt-2 text-xs text-(--color-ink-faint) flex items-center justify-center gap-3 flex-wrap">
           <Link to="/terms" className="hover:text-(--color-walnut-500) transition-colors">
             이용약관
           </Link>
@@ -227,6 +227,14 @@ function PublicLibraryView({ library }: { library: Library }) {
           <Link to="/privacy" className="hover:text-(--color-walnut-500) transition-colors">
             개인정보처리방침
           </Link>
+          <span aria-hidden="true">·</span>
+          <button
+            type="button"
+            onClick={() => setReportOpen(true)}
+            className="hover:text-(--color-danger) transition-colors"
+          >
+            신고하기
+          </button>
         </p>
       </footer>
       <BackToTopButton />
@@ -273,13 +281,7 @@ function BackToTopButton() {
   )
 }
 
-function PublicHeader({
-  library,
-  onReport,
-}: {
-  library: Library
-  onReport: () => void
-}) {
+function PublicHeader({ library }: { library: Library }) {
   return (
     <header className="border-b border-(--color-line) bg-(--color-surface-raised)/60 backdrop-blur-sm sticky top-0 z-10">
       <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between gap-4">
@@ -291,22 +293,12 @@ function PublicHeader({
             @{library.ownerUsername} · {library.ownerDisplayName}
           </p>
         </div>
-        <div className="flex items-center gap-3 shrink-0">
-          <button
-            type="button"
-            onClick={onReport}
-            className="text-xs text-(--color-ink-muted) hover:text-(--color-danger) transition-colors px-2 py-1"
-            title="이 도서관 신고"
-          >
-            🚩 신고
-          </button>
-          <a
-            href="/login"
-            className="text-sm text-(--color-walnut-500) hover:text-(--color-walnut-700) font-medium whitespace-nowrap"
-          >
-            내 도서관 만들기 →
-          </a>
-        </div>
+        <a
+          href="/login"
+          className="text-sm text-(--color-walnut-500) hover:text-(--color-walnut-700) font-medium whitespace-nowrap"
+        >
+          내 도서관 만들기 →
+        </a>
       </div>
     </header>
   )

@@ -7,7 +7,13 @@ import jakarta.validation.constraints.Size;
 
 public record CreateBookRequest(
     @NotNull Long bookshelfId,
-    @NotBlank @Size(max = 2048) String url,
+    @NotBlank
+    @Size(max = 2048)
+    // Reject javascript:/data:/file:/vbscript: schemes — these become
+    // <a href="..."> targets in shared library views and would execute
+    // in the visitor's context. Only http/https links are valid bookmarks.
+    @Pattern(regexp = "^https?://.+", message = "URL은 http:// 또는 https:// 로 시작해야 합니다.")
+    String url,
     @Size(max = 256) String title,
     @Size(max = 128) String siteName,
     @Pattern(regexp = "^#[0-9A-Fa-f]{6}$") String coverColor,
