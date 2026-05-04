@@ -807,22 +807,25 @@ function silhouetteCount(totalBooks: number): number {
 }
 
 /**
- * Ten candidate positions arranged around the pedestal. Filled in this order
- * as the count grows, so 1~6 cluster near the pedestal and 7~10 spread out.
+ * Ten candidate visitor positions across the floor. Designed to LOOK
+ * UNPLANNED — no left/right mirror pairs, no shared y-rows, no slot at
+ * exactly center. Earlier versions used a symmetric ring around the pedestal
+ * which read like a posed group photo when all 10 filled (heavy library);
+ * now positions skew asymmetrically and span the full vertical range from
+ * near-entrance to near-private-door. xR avoids the wall-shelf bands
+ * (≤ 0.20 left, ≥ 0.80 right) and the pedestal column (~ 0.42–0.58).
  */
 const SILHOUETTE_SLOTS: Array<{ xR: number; yR: number }> = [
-  // Inner cluster around the pedestal (filled first)
-  { xR: 0.30, yR: 0.50 }, // 1: left-mid
-  { xR: 0.70, yR: 0.50 }, // 2: right-mid
-  { xR: 0.50, yR: 0.30 }, // 3: above pedestal
-  { xR: 0.40, yR: 0.78 }, // 4: lower-left
-  { xR: 0.60, yR: 0.78 }, // 5: lower-right
-  { xR: 0.50, yR: 0.78 }, // 6: bottom-center
-  // Outer (filled later)
-  { xR: 0.30, yR: 0.35 }, // 7: upper-left
-  { xR: 0.70, yR: 0.35 }, // 8: upper-right
-  { xR: 0.30, yR: 0.68 }, // 9: lower-left further out
-  { xR: 0.70, yR: 0.68 }, // 10: lower-right further out
+  { xR: 0.24, yR: 0.38 }, // 1: upper-left central aisle (browsing)
+  { xR: 0.76, yR: 0.62 }, // 2: mid-right, intentionally not paired with #1's y
+  { xR: 0.42, yR: 0.22 }, // 3: near entrance, slightly off-center
+  { xR: 0.68, yR: 0.30 }, // 4: between entrance and pedestal-east
+  { xR: 0.30, yR: 0.66 }, // 5: southwest of pedestal
+  { xR: 0.78, yR: 0.45 }, // 6: east flank (NOT at 0.50)
+  { xR: 0.55, yR: 0.85 }, // 7: walking near bottom edge, right of center
+  { xR: 0.36, yR: 0.85 }, // 8: bottom area, off-center-left
+  { xR: 0.62, yR: 0.72 }, // 9: lower-east
+  { xR: 0.26, yR: 0.50 }, // 10: pedestal-west flank (uneven height with #6)
 ]
 
 /**
@@ -858,10 +861,12 @@ function drawSilhouettes(
   const seed = library.id ?? 1
   const inkColor = invertReadable(floor.primary)
   const slots = portrait ? PORTRAIT_SILHOUETTE_SLOTS : SILHOUETTE_SLOTS
-  // Tighter jitter in portrait: the central aisle is only ~96px wide, so we
-  // can't afford ±11px horizontal scatter.
-  const jitterRangeX = portrait ? 8 : 22
-  const jitterRangeY = portrait ? 12 : 18
+  // Portrait: tight jitter so figures stay inside the narrow central aisle.
+  // Landscape: large jitter so the 10 filled slots don't read as a designed
+  // ring — the deterministic seed-based offset still keeps placements stable
+  // per library, but pulls neighbors apart enough to look human-placed.
+  const jitterRangeX = portrait ? 8 : 44
+  const jitterRangeY = portrait ? 12 : 36
 
   for (let i = 0; i < count; i++) {
     const slot = slots[i]
