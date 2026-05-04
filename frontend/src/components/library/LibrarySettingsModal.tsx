@@ -32,7 +32,11 @@ export function LibrarySettingsModal({ open, library, onClose, onSaved }: Props)
   const [themes, setThemes] = useState<Theme[]>([])
   const [floorThemes, setFloorThemes] = useState<FloorTheme[]>([])
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  // Split errors so a field-specific validation message stays inline on its
+  // input, while server errors (which can come from any field or the whole
+  // request) surface in a banner at the bottom of the form near Save.
+  const [titleError, setTitleError] = useState<string | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
 
   // Reset to current library state whenever modal opens.
   useEffect(() => {
@@ -43,7 +47,8 @@ export function LibrarySettingsModal({ open, library, onClose, onSaved }: Props)
     setPaletteName(library.paletteName)
     setFloorPaletteName(library.floorPaletteName)
     setIsPublic(library.isPublic)
-    setError(null)
+    setTitleError(null)
+    setFormError(null)
   }, [open, library])
 
   // Fetch themes once when modal first opens.
@@ -59,8 +64,10 @@ export function LibrarySettingsModal({ open, library, onClose, onSaved }: Props)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setTitleError(null)
+    setFormError(null)
     if (!title.trim()) {
-      setError('도서관 이름은 비울 수 없습니다.')
+      setTitleError('도서관 이름은 비울 수 없습니다.')
       return
     }
     setSubmitting(true)
@@ -76,7 +83,7 @@ export function LibrarySettingsModal({ open, library, onClose, onSaved }: Props)
       onSaved()
       onClose()
     } catch (err) {
-      setError(extractApiErrorMessage(err, '저장 실패'))
+      setFormError(extractApiErrorMessage(err, '저장 실패'))
     } finally {
       setSubmitting(false)
     }
@@ -106,7 +113,7 @@ export function LibrarySettingsModal({ open, library, onClose, onSaved }: Props)
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             maxLength={128}
-            error={error ?? undefined}
+            error={titleError ?? undefined}
           />
           <Textarea
             label="입구 환영 메시지"
@@ -207,6 +214,15 @@ export function LibrarySettingsModal({ open, library, onClose, onSaved }: Props)
             </div>
           </button>
         </Section>
+
+        {formError && (
+          <div
+            role="alert"
+            className="px-4 py-3 rounded-(--radius-sm) bg-(--color-danger)/10 border border-(--color-danger)/30 text-sm text-(--color-danger)"
+          >
+            {formError}
+          </div>
+        )}
       </form>
     </Modal>
   )

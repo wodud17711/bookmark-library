@@ -111,14 +111,6 @@ export default function TermsPage() {
         </ol>
       </Article>
 
-      <Article title="제6조의3 (도서관 공개의 제한)">
-        <p>
-          스팸 및 악성 콘텐츠 확산 방지를 위해, 회원 가입 후 일정 기간(현재 7일) 내에는
-          도서관을 공개로 설정할 수 없습니다. 가입 후 일정 기간이 경과한 이후 정상적으로
-          공개 기능을 사용하실 수 있습니다.
-        </p>
-      </Article>
-
       <Article title="제7조 (운영자의 의무 및 책임 제한)">
         <ol>
           <li>
