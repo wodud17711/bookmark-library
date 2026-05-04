@@ -8,7 +8,7 @@ import { Link } from 'react-router-dom'
  * effective date in {@link EFFECTIVE_DATE} after a substantive change.
  */
 const OPERATOR_NAME = 'wodud17711'
-const CONTACT_EMAIL = 'wodud17711@example.com' // TODO: replace with real address before launch
+const CONTACT_EMAIL = 'jaeyoung17711@gmail.com'
 const EFFECTIVE_DATE = '2026-05-04'
 
 export default function PrivacyPolicyPage() {
