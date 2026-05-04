@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.SecurityFilterChain;
@@ -32,6 +33,8 @@ public class SecurityConfig {
                 .requestMatchers("/og/**").permitAll()
                 // Public-share HTML (server-rendered with OG meta tags)
                 .requestMatchers("/u/**").permitAll()
+                // Anonymous report submissions — anyone with a share URL can flag content
+                .requestMatchers(HttpMethod.POST, "/api/reports").permitAll()
                 .requestMatchers("/api/**").authenticated()
                 .anyRequest().permitAll()
             )

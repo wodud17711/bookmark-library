@@ -4,6 +4,7 @@ import { fetchPublicLibrary, type Bookshelf, type Library, type Book } from '../
 import { extractApiErrorMessage } from '../api/client'
 import { Button, Card } from '../components/ui'
 import { PixiLibraryScene } from '../components/library/PixiLibraryScene'
+import { ReportModal } from '../components/library/ReportModal'
 
 type LoadState =
   | { status: 'loading' }
@@ -130,6 +131,7 @@ function PublicLibraryView({ library }: { library: Library }) {
     [library],
   )
   const [bestsellerExpanded, setBestsellerExpanded] = useState(true)
+  const [reportOpen, setReportOpen] = useState(false)
 
   // Refs for Pixi-scene → list-card scrolling
   const shelfCardRefs = useRef<Map<number, HTMLElement>>(new Map())
@@ -153,7 +155,7 @@ function PublicLibraryView({ library }: { library: Library }) {
 
   return (
     <div className="min-h-full flex flex-col">
-      <PublicHeader library={library} />
+      <PublicHeader library={library} onReport={() => setReportOpen(true)} />
 
       <main className="flex-1 max-w-6xl w-full mx-auto px-6 py-10 space-y-12">
         <PixiLibraryScene
@@ -228,6 +230,12 @@ function PublicLibraryView({ library }: { library: Library }) {
         </p>
       </footer>
       <BackToTopButton />
+      <ReportModal
+        open={reportOpen}
+        libraryId={library.id}
+        libraryTitle={library.title}
+        onClose={() => setReportOpen(false)}
+      />
     </div>
   )
 }
@@ -265,7 +273,13 @@ function BackToTopButton() {
   )
 }
 
-function PublicHeader({ library }: { library: Library }) {
+function PublicHeader({
+  library,
+  onReport,
+}: {
+  library: Library
+  onReport: () => void
+}) {
   return (
     <header className="border-b border-(--color-line) bg-(--color-surface-raised)/60 backdrop-blur-sm sticky top-0 z-10">
       <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between gap-4">
@@ -277,12 +291,22 @@ function PublicHeader({ library }: { library: Library }) {
             @{library.ownerUsername} · {library.ownerDisplayName}
           </p>
         </div>
-        <a
-          href="/login"
-          className="text-sm text-(--color-walnut-500) hover:text-(--color-walnut-700) font-medium whitespace-nowrap"
-        >
-          내 도서관 만들기 →
-        </a>
+        <div className="flex items-center gap-3 shrink-0">
+          <button
+            type="button"
+            onClick={onReport}
+            className="text-xs text-(--color-ink-muted) hover:text-(--color-danger) transition-colors px-2 py-1"
+            title="이 도서관 신고"
+          >
+            🚩 신고
+          </button>
+          <a
+            href="/login"
+            className="text-sm text-(--color-walnut-500) hover:text-(--color-walnut-700) font-medium whitespace-nowrap"
+          >
+            내 도서관 만들기 →
+          </a>
+        </div>
       </div>
     </header>
   )
