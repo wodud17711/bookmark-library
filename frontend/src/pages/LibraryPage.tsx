@@ -313,9 +313,48 @@ export default function LibraryPage() {
         onJumpToOtherLibrary={handleLibrarianJump}
         onOpenStorage={() => setStorageOpen(true)}
       />
+      <BackToTopButton />
     </div>
   )
 }
+
+function BackToTopButton() {
+  const [visible, setVisible] = useState(false)
+
+  useEffect(() => {
+    const onScroll = () => setVisible(window.scrollY > 300)
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
+  if (!visible) return null
+
+  return (
+    <button
+      type="button"
+      onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+      aria-label="맨 위로"
+      title="맨 위로"
+      className="fixed bottom-5 right-5 z-30 w-11 h-11 rounded-full bg-(--color-walnut-500) text-white shadow-(--shadow-lg) hover:bg-(--color-walnut-700) active:scale-95 transition-all flex items-center justify-center"
+    >
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+        <path
+          d="M9 14V4M9 4L4 9M9 4L14 9"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </button>
+  )
+}
+
+// Below this width, the header collapses non-essential actions (Share, Storage,
+// Settings, Logout) into a hamburger menu and hides Import entirely (Chrome
+// mobile cannot export bookmarks as HTML, so importing has no realistic flow).
+const HEADER_MOBILE_BREAKPOINT = 600
 
 function Header({
   me,
@@ -342,6 +381,17 @@ function Header({
   onCreateLibrary: () => void
   onOpenLibrarian: () => void
 }) {
+  const [isMobile, setIsMobile] = useState<boolean>(() =>
+    typeof window !== 'undefined' && window.innerWidth < HEADER_MOBILE_BREAKPOINT,
+  )
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const update = () => setIsMobile(window.innerWidth < HEADER_MOBILE_BREAKPOINT)
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [])
+
   return (
     <header className="border-b border-(--color-line) bg-(--color-surface-raised)/60 backdrop-blur-sm sticky top-0 z-10">
       <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between gap-4">
@@ -360,38 +410,167 @@ function Header({
             <span>📖</span>
             <span className="hidden md:inline">사서</span>
           </button>
-          <ShareButton
-            username={me.username}
-            slug={librarySlug}
-            isPublic={isPublic}
-            onSettings={onOpenSettings}
+          {isMobile ? (
+            <HamburgerMenu
+              username={me.username}
+              storageCount={storageCount}
+              isPublic={isPublic}
+              shareUrl={`${window.location.origin}/u/${me.username}/${librarySlug}`}
+              onOpenStorage={onOpenStorage}
+              onOpenSettings={onOpenSettings}
+            />
+          ) : (
+            <>
+              <ShareButton
+                username={me.username}
+                slug={librarySlug}
+                isPublic={isPublic}
+                onSettings={onOpenSettings}
+              />
+              <button
+                type="button"
+                onClick={onOpenStorage}
+                className="text-sm px-3 py-1.5 rounded-(--radius-sm) hover:bg-(--color-surface-sunken) transition-colors text-(--color-ink) flex items-center gap-1.5"
+                title="창고 열기"
+              >
+                <span>📦</span>
+                <span className="font-medium">{storageCount}</span>
+              </button>
+              <Button variant="secondary" size="sm" onClick={onImport}>
+                가져오기
+              </Button>
+              <IconButton label="도서관 설정" onClick={onOpenSettings}>
+                <SettingsIcon />
+              </IconButton>
+              <span className="hidden md:inline-block w-px h-5 bg-(--color-line) mx-1" />
+              <span className="hidden md:inline text-sm text-(--color-ink-muted)">
+                @{me.username}
+              </span>
+              <a
+                href="/logout"
+                className="text-sm text-(--color-ink-muted) hover:text-(--color-walnut-500) transition-colors px-2"
+              >
+                로그아웃
+              </a>
+            </>
+          )}
+        </div>
+      </div>
+    </header>
+  )
+}
+
+function HamburgerMenu({
+  username,
+  storageCount,
+  isPublic,
+  shareUrl,
+  onOpenStorage,
+  onOpenSettings,
+}: {
+  username: string
+  storageCount: number
+  isPublic: boolean
+  shareUrl: string
+  onOpenStorage: () => void
+  onOpenSettings: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [shareLabel, setShareLabel] = useState('공유')
+  const menuRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const close = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+
+  const handleShare = async () => {
+    if (!isPublic) {
+      const ok = window.confirm(
+        '도서관이 비공개 상태입니다. 공개 도서관으로 바꾸려면 설정을 열까요?',
+      )
+      if (ok) {
+        setOpen(false)
+        onOpenSettings()
+      }
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(shareUrl)
+      setShareLabel('✓ 복사됨')
+      window.setTimeout(() => setShareLabel('공유'), 1500)
+    } catch {
+      window.prompt('아래 링크를 복사하세요', shareUrl)
+    }
+  }
+
+  return (
+    <div ref={menuRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label="메뉴 열기"
+        aria-expanded={open}
+        className="text-sm px-2.5 py-1.5 rounded-(--radius-sm) hover:bg-(--color-surface-sunken) transition-colors text-(--color-ink)"
+      >
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+          <path d="M2 5h14M2 9h14M2 13h14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 mt-2 w-56 rounded-(--radius-md) border border-(--color-line) bg-(--color-surface-raised) shadow-(--shadow-md) py-1 z-20"
+        >
+          <MenuItem
+            onClick={() => {
+              setOpen(false)
+              onOpenStorage()
+            }}
+            label={`📦 창고 (${storageCount})`}
           />
-          <button
-            type="button"
-            onClick={onOpenStorage}
-            className="text-sm px-3 py-1.5 rounded-(--radius-sm) hover:bg-(--color-surface-sunken) transition-colors text-(--color-ink) flex items-center gap-1.5"
-            title="창고 열기"
-          >
-            <span>📦</span>
-            <span className="font-medium">{storageCount}</span>
-          </button>
-          <Button variant="secondary" size="sm" onClick={onImport}>
-            가져오기
-          </Button>
-          <IconButton label="도서관 설정" onClick={onOpenSettings}>
-            <SettingsIcon />
-          </IconButton>
-          <span className="hidden md:inline-block w-px h-5 bg-(--color-line) mx-1" />
-          <span className="hidden md:inline text-sm text-(--color-ink-muted)">@{me.username}</span>
+          <MenuItem
+            onClick={handleShare}
+            label={isPublic ? shareLabel : '공유 (비공개)'}
+          />
+          <MenuItem
+            onClick={() => {
+              setOpen(false)
+              onOpenSettings()
+            }}
+            label="⚙ 도서관 설정"
+          />
+          <div className="my-1 border-t border-(--color-line-soft)" />
+          <div className="px-3 py-1.5 text-xs text-(--color-ink-muted)">@{username}</div>
           <a
             href="/logout"
-            className="text-sm text-(--color-ink-muted) hover:text-(--color-walnut-500) transition-colors px-2"
+            className="block px-3 py-2 text-sm text-(--color-ink-muted) hover:bg-(--color-surface-sunken) hover:text-(--color-walnut-500) transition-colors"
           >
             로그아웃
           </a>
         </div>
-      </div>
-    </header>
+      )}
+    </div>
+  )
+}
+
+function MenuItem({ onClick, label }: { onClick: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      className="w-full text-left px-3 py-2 text-sm text-(--color-ink-strong) hover:bg-(--color-surface-sunken) transition-colors"
+    >
+      {label}
+    </button>
   )
 }
 
