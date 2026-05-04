@@ -27,29 +27,26 @@ public class SecurityConfig {
         http
             .csrf(csrf -> csrf.ignoringRequestMatchers("/api/**"))
             .authorizeHttpRequests(auth -> auth
-                // ─── Explicitly public ────────────────────────────────
-                // Public share JSON endpoints — viewable without sign-in
+                // ─── Public API endpoints ─────────────────────────────
+                // Public share JSON — viewable without sign-in
                 .requestMatchers("/api/u/**").permitAll()
+                // Anonymous report submissions — anyone with a share URL can flag content
+                .requestMatchers(HttpMethod.POST, "/api/reports").permitAll()
+                // ─── Strict on the rest of /api/** ────────────────────
+                // The actual sensitive surface — owner data, mutations, exports.
+                // 401 JSON via the entry point below for unauthenticated callers.
+                .requestMatchers("/api/**").authenticated()
+
+                // ─── Public non-API paths ─────────────────────────────
                 // Public OG image bytes — fetched by social-media crawlers
                 .requestMatchers("/og/**").permitAll()
                 // Public-share HTML (server-rendered with OG meta tags)
                 .requestMatchers("/u/**").permitAll()
-                // Anonymous report submissions — anyone with a share URL can flag content
-                .requestMatchers(HttpMethod.POST, "/api/reports").permitAll()
-                // OAuth2 flow paths — entry points and callback handlers
-                .requestMatchers("/oauth2/**", "/login/oauth2/**", "/login").permitAll()
-                // Logout endpoint — public so users can sign out cleanly
-                .requestMatchers("/logout").permitAll()
-                // Static resources / favicon / common public assets
-                .requestMatchers("/", "/favicon.svg", "/error").permitAll()
-
-                // ─── All authenticated API ────────────────────────────
-                .requestMatchers("/api/**").authenticated()
-
-                // ─── Deny by default ──────────────────────────────────
-                // Anything not explicitly permitted above requires auth.
-                // Adding a new endpoint won't accidentally make it public.
-                .anyRequest().authenticated()
+                // Everything else (OAuth flow, /login, /logout, /error, static
+                // assets, SPA fallthroughs) is left open — those carry no
+                // sensitive data and Spring Security's own machinery needs them
+                // reachable. Sensitive logic is gated through /api/** above.
+                .anyRequest().permitAll()
             )
             .oauth2Login(oauth -> oauth
                 .userInfoEndpoint(userInfo -> userInfo
