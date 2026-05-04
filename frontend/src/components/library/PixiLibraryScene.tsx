@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Application,
   Container,
@@ -32,6 +32,10 @@ interface Props {
   readonly?: boolean
 }
 
+// Below this viewport width the floor plan switches to a 9:16 portrait layout
+// (pedestal moves above the shelves so it no longer competes with shelf width).
+const MOBILE_BREAKPOINT = 600
+
 /**
  * Top-down floor plan rendered with Pixi.js.
  *
@@ -43,7 +47,7 @@ interface Props {
  *   5. Bestseller pedestal + rug in center
  *   6. Private door at the bottom edge
  *   7. Entrance light spill onto floor
- *   8. Entrance sign + glow at top
+ *   8. Entrance glow + door frame at top (no label — light reads as entrance)
  *   9. Storage chip in top corner
  */
 export function PixiLibraryScene(props: Props) {
@@ -51,6 +55,21 @@ export function PixiLibraryScene(props: Props) {
   const appRef = useRef<Application | null>(null)
   const propsRef = useRef(props)
   propsRef.current = props
+
+  // Mobile portrait detection — drives both the host aspect-ratio (9:16 vs 16:9)
+  // and the internal layout branch in drawScene. ResizeObserver re-runs drawScene
+  // whenever the host changes size, so flipping the aspect-ratio re-renders the
+  // floor plan in the new orientation automatically.
+  const [isPortrait, setIsPortrait] = useState<boolean>(() =>
+    typeof window !== 'undefined' && window.innerWidth < MOBILE_BREAKPOINT,
+  )
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const update = () => setIsPortrait(window.innerWidth < MOBILE_BREAKPOINT)
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [])
 
   useEffect(() => {
     const host = containerRef.current
@@ -79,6 +98,10 @@ export function PixiLibraryScene(props: Props) {
       app.canvas.style.display = 'block'
       app.canvas.style.width = '100%'
       app.canvas.style.height = '100%'
+      // Pixi 8 sets touch-action: none on the canvas by default, which blocks
+      // vertical page scroll when a touch starts inside the floor plan. Allow
+      // browser-handled vertical pan while still letting Pixi receive taps.
+      app.canvas.style.touchAction = 'pan-y'
 
       drawScene(app, propsRef.current)
 
@@ -122,7 +145,11 @@ export function PixiLibraryScene(props: Props) {
     <div
       ref={containerRef}
       className="w-full rounded-(--radius-lg) overflow-hidden border border-(--color-line) shadow-(--shadow-md)"
-      style={{ aspectRatio: '16 / 9', minHeight: 440, maxHeight: 680 }}
+      style={
+        isPortrait
+          ? { aspectRatio: '9 / 16', minHeight: 520, maxHeight: '85vh' }
+          : { aspectRatio: '16 / 9', minHeight: 440, maxHeight: 680 }
+      }
     />
   )
 }
@@ -142,6 +169,16 @@ const MAX_SHELF_WIDTH = 130
 // Gap must clear: shelf-below capacity (~12px) + shelf-above label (~14px) + breathing room.
 const SHELF_GAP = 32
 const SIDE_WALL_WIDTH = 150
+
+// Vertical band reserved for the pedestal in portrait mode (pedestal h + label + breathing).
+const PORTRAIT_PEDESTAL_BAND = 120
+const PORTRAIT_PEDESTAL_WIDTH = 160
+const PORTRAIT_PEDESTAL_HEIGHT = 78
+const PORTRAIT_MAX_SHELF_WIDTH = 100
+const PORTRAIT_SIDE_WALL_WIDTH = 120
+// In portrait the central aisle between left/right shelf columns is only ~96px,
+// so the door must be narrow enough to clear shelf inner edges.
+const PORTRAIT_PRIVATE_DOOR_WIDTH = 76
 
 interface ShelfBox {
   shelf: Bookshelf
@@ -169,19 +206,22 @@ function drawScene(app: Application, p: Props) {
 
   const W = app.renderer.width
   const H = app.renderer.height
+  // Internal portrait branch: the host's aspectRatio has already flipped to 9:16
+  // by the time ResizeObserver fires drawScene, so H > W is enough.
+  const portrait = H > W
 
   drawFloor(stage, W, H, floor)
   drawWallBorders(stage, W, H, floor)
   drawEntranceSpill(stage, W, floor, p)
-  drawSilhouettes(stage, W, H, p.library, floor)
+  drawSilhouettes(stage, W, H, p.library, floor, portrait)
 
   const publicShelves = p.library.bookshelves.filter((s) => s.zone === 'PUBLIC')
-  const boxes = layoutShelves(publicShelves, W, H)
+  const boxes = layoutShelves(publicShelves, W, H, portrait)
   for (const box of boxes) drawBookshelf(stage, box, shelf, floor, p.onShelfClick)
 
-  drawBestsellerPedestal(stage, W, H, shelf, floor, p)
+  drawBestsellerPedestal(stage, W, H, shelf, floor, p, portrait)
   if (!p.readonly) {
-    drawPrivateDoor(stage, W, H, shelf, floor, p)
+    drawPrivateDoor(stage, W, H, shelf, floor, p, portrait)
   }
   drawEntrance(stage, W, floor, p)
   if (!p.readonly) {
@@ -279,21 +319,6 @@ function drawEntrance(stage: Container, W: number, floor: FloorPalette, p: Props
     container.addChild(g)
   }
 
-  const hasMessage = !!p.library.welcomeMessage && p.library.welcomeMessage.trim().length > 0
-  const sign = new Text({
-    text: hasMessage ? '🚪 입구  📜' : '🚪 입구',
-    style: {
-      fontFamily: 'Pretendard, system-ui, sans-serif',
-      fontSize: 11,
-      fill: invertReadable(floor.primary),
-    },
-  })
-  sign.anchor.set(0.5, 0)
-  sign.x = W / 2
-  sign.y = ENTRANCE_HEIGHT - 18
-  sign.alpha = 0.75
-  container.addChild(sign)
-
   if (!p.readonly) {
     let hover = false
     const drawHover = () => { container.alpha = hover ? 1.0 : 0.92 }
@@ -339,19 +364,35 @@ function entranceLightFor(mood: EntranceMood): string {
 
 // ─── Bookshelf layout + draw ────────────────────────────
 
-function layoutShelves(shelves: Bookshelf[], W: number, H: number): ShelfBox[] {
+function layoutShelves(
+  shelves: Bookshelf[],
+  W: number,
+  H: number,
+  portrait: boolean,
+): ShelfBox[] {
   const left: Bookshelf[] = []
   const right: Bookshelf[] = []
   shelves.forEach((s, i) => (i % 2 === 0 ? left.push(s) : right.push(s)))
 
-  const usableTop = ENTRANCE_HEIGHT + PADDING
+  const sideWallWidth = portrait ? PORTRAIT_SIDE_WALL_WIDTH : SIDE_WALL_WIDTH
+  const maxShelfWidth = portrait ? PORTRAIT_MAX_SHELF_WIDTH : MAX_SHELF_WIDTH
+  // In portrait, the pedestal lives in a band directly under the entrance, so
+  // shelf rows must start below it. Landscape leaves the entire wall available.
+  const topReserved = ENTRANCE_HEIGHT + (portrait ? PORTRAIT_PEDESTAL_BAND : 0)
+  const usableTop = topReserved + PADDING
   const usableBottom = H - PRIVATE_DOOR_HEIGHT - PRIVATE_BOTTOM_OFFSET - PADDING / 2
   const usableHeight = usableBottom - usableTop
   const wallSlots = Math.max(left.length, right.length)
   const slotHeight =
     (usableHeight - SHELF_GAP * Math.max(0, wallSlots - 1)) / Math.max(1, wallSlots)
-  const shelfH = Math.min(140, Math.max(64, slotHeight))
-  const shelfW = Math.min(MAX_SHELF_WIDTH, SIDE_WALL_WIDTH - 20)
+  // Portrait: no minimum so shelves always fit within usableHeight (preventing
+  // the last row from overflowing into the private door area). Cap at 100 to keep
+  // the visual lighter than landscape.
+  // Landscape: keep prior min/max so shelves look full-bodied.
+  const shelfH = portrait
+    ? Math.max(36, Math.min(100, slotHeight))
+    : Math.min(140, Math.max(56, slotHeight))
+  const shelfW = Math.min(maxShelfWidth, sideWallWidth - 20)
 
   const boxes: ShelfBox[] = []
   const buildSide = (arr: Bookshelf[], side: 'left' | 'right') => {
@@ -497,12 +538,18 @@ function drawBestsellerPedestal(
   shelf: ShelfPalette,
   floor: FloorPalette,
   p: Props,
+  portrait: boolean,
 ) {
   if (p.favoritesCount === 0) return
   const cx = W / 2
-  const cy = (ENTRANCE_HEIGHT + (H - PRIVATE_DOOR_HEIGHT - PRIVATE_BOTTOM_OFFSET)) / 2 - 10
-  const w = PEDESTAL_WIDTH
-  const h = PEDESTAL_HEIGHT
+  // Portrait: tucked into the reserved band just below the entrance so the
+  // shelves can claim the full left/right walls.
+  // Landscape: classic centered placement between entrance and private door.
+  const cy = portrait
+    ? ENTRANCE_HEIGHT + PORTRAIT_PEDESTAL_BAND / 2
+    : (ENTRANCE_HEIGHT + (H - PRIVATE_DOOR_HEIGHT - PRIVATE_BOTTOM_OFFSET)) / 2 - 10
+  const w = portrait ? PORTRAIT_PEDESTAL_WIDTH : PEDESTAL_WIDTH
+  const h = portrait ? PORTRAIT_PEDESTAL_HEIGHT : PEDESTAL_HEIGHT
 
   // Rug under the pedestal — uses shelf wood so it relates to the bookshelves
   const rug = new Graphics()
@@ -598,8 +645,11 @@ function drawPrivateDoor(
   shelf: ShelfPalette,
   floor: FloorPalette,
   p: Props,
+  portrait: boolean,
 ) {
-  const w = PRIVATE_DOOR_WIDTH
+  // Portrait: narrower so the door fits in the central aisle without clipping
+  // the inner edges of the bottom-row shelves on both walls.
+  const w = portrait ? PORTRAIT_PRIVATE_DOOR_WIDTH : PRIVATE_DOOR_WIDTH
   const h = PRIVATE_DOOR_HEIGHT
   const x = (W - w) / 2
   const y = H - h - PRIVATE_BOTTOM_OFFSET
@@ -638,8 +688,13 @@ function drawPrivateDoor(
   })
   container.addChild(handle)
 
+  // Portrait door is too narrow for the full Korean label, so show just the
+  // padlock; the floor-plan position already reads as "private door".
+  const lockText = portrait
+    ? '🔒'
+    : `🔒 프라이빗${p.privateCount > 0 ? ` · ${p.privateCount}` : ''}`
   const lock = new Text({
-    text: `🔒 프라이빗${p.privateCount > 0 ? ` · ${p.privateCount}` : ''}`,
+    text: lockText,
     style: {
       fontFamily: 'Pretendard, system-ui, sans-serif',
       fontSize: 11,
@@ -647,7 +702,7 @@ function drawPrivateDoor(
     },
   })
   lock.anchor.set(0.5, 0.5)
-  lock.x = w / 2 - 4
+  lock.x = portrait ? w / 2 : w / 2 - 4
   lock.y = h / 2
   lock.alpha = 0.85
   container.addChild(lock)
@@ -763,12 +818,31 @@ const SILHOUETTE_SLOTS: Array<{ xR: number; yR: number }> = [
   { xR: 0.70, yR: 0.68 }, // 10: lower-right further out
 ]
 
+/**
+ * Portrait slots: kept inside the narrow central aisle between the left and
+ * right shelf walls (xR ≈ 0.45–0.55) so silhouettes never overlap shelves.
+ * yR span avoids the pedestal band at top and the private door at bottom.
+ */
+const PORTRAIT_SILHOUETTE_SLOTS: Array<{ xR: number; yR: number }> = [
+  { xR: 0.50, yR: 0.42 },
+  { xR: 0.50, yR: 0.50 },
+  { xR: 0.46, yR: 0.58 },
+  { xR: 0.54, yR: 0.58 },
+  { xR: 0.50, yR: 0.66 },
+  { xR: 0.46, yR: 0.74 },
+  { xR: 0.54, yR: 0.74 },
+  { xR: 0.50, yR: 0.80 },
+  { xR: 0.46, yR: 0.86 },
+  { xR: 0.54, yR: 0.86 },
+]
+
 function drawSilhouettes(
   stage: Container,
   W: number,
   H: number,
   library: Library,
   floor: FloorPalette,
+  portrait: boolean,
 ) {
   const totalBooks = library.bookshelves.reduce((sum, s) => sum + s.books.length, 0)
   const count = silhouetteCount(totalBooks)
@@ -776,12 +850,17 @@ function drawSilhouettes(
 
   const seed = library.id ?? 1
   const inkColor = invertReadable(floor.primary)
+  const slots = portrait ? PORTRAIT_SILHOUETTE_SLOTS : SILHOUETTE_SLOTS
+  // Tighter jitter in portrait: the central aisle is only ~96px wide, so we
+  // can't afford ±11px horizontal scatter.
+  const jitterRangeX = portrait ? 8 : 22
+  const jitterRangeY = portrait ? 12 : 18
 
   for (let i = 0; i < count; i++) {
-    const slot = SILHOUETTE_SLOTS[i]
+    const slot = slots[i]
     // Deterministic per-library jitter so silhouettes feel placed, not perfectly aligned.
-    const jitterX = ((seed * 17 + i * 31) % 22) - 11
-    const jitterY = ((seed * 13 + i * 19) % 18) - 9
+    const jitterX = ((seed * 17 + i * 31) % jitterRangeX) - jitterRangeX / 2
+    const jitterY = ((seed * 13 + i * 19) % jitterRangeY) - jitterRangeY / 2
     const x = W * slot.xR + jitterX
     const y = H * slot.yR + jitterY
     const facingRight = ((seed + i * 7) % 2) === 0
