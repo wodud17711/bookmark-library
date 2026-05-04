@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { fetchMe, type Me } from '../api/auth'
 import { MAX_BOOKSHELVES_PER_LIBRARY, type Book, type Bookshelf } from '../api/library'
 import { fetchStorageCount } from '../api/storage'
@@ -289,9 +290,18 @@ export default function LibraryPage() {
         </section>
       </main>
 
-      <footer className="mt-12 py-8 border-t border-(--color-line-soft) text-center">
+      <footer className="mt-12 py-8 border-t border-(--color-line-soft) text-center space-y-3">
         <p className="text-xs text-(--color-ink-faint)">
           ⌂ {library.bookshelves.length}개 책장 · {totalBooks}권 보관 중
+        </p>
+        <p className="text-xs text-(--color-ink-faint) flex items-center justify-center gap-3">
+          <Link to="/terms" className="hover:text-(--color-walnut-500) transition-colors">
+            이용약관
+          </Link>
+          <span aria-hidden="true">·</span>
+          <Link to="/privacy" className="hover:text-(--color-walnut-500) transition-colors">
+            개인정보처리방침
+          </Link>
         </p>
       </footer>
 
