@@ -40,6 +40,42 @@ type: project
 - 각 도서관 독립 공개/비공개, 독립 테마 (책장 + 마루)
 - LibrarySwitcher (헤더 dropdown)에서 전환 + 새 도서관 생성
 
+## 모바일/태블릿 평면도 (v1에서 구현됨)
+
+- `PortraitMode = 'phone' | 'tablet' | null` 3분기
+- 폰(<600px): 9:16, 페데스탈 입구 아래로, 책장 좌우 4쌍, 프라이빗 문 76px로 축소 + 🔒 라벨
+- 태블릿 portrait(<1080px && H>W): 5:7 (near-square), aisle 더 넓어짐
+- 데스크톱: 16:9 그대로
+- 실루엣 슬롯이 portrait면 aisle-RELATIVE (0=좌측 책장 안쪽, 1=우측 책장 안쪽), landscape면 canvas-relative 비대칭
+- `orientationchange` 이벤트도 listen → 회전 시 즉시 layout 전환
+- Pixi 캔버스 `touch-action: pan-y`로 모바일 페이지 스크롤 살림 (Pixi 8 기본은 none)
+
+## OG 이미지 자동 생성 (v1에서 구현됨)
+
+- **Phase 1 (캡처/저장/서빙)**: `Library.ogImage`(byte[], `@JdbcTypeCode LONGVARBINARY`) — 1MB 한도. 프론트가 라이브러리 변경 후 1.5s debounce → `canvas.toBlob` → `POST /api/libraries/{id}/og-image`. 데스크톱 viewport에서만 캡처 (16:9 일관성). Pixi 옵션 `preserveDrawingBuffer:true + preference:'webgl'` 강제 (검정 PNG 방지).
+- **Phase 2 (SSR for crawlers)**: Spring `PublicLibraryHtmlController`가 `/u/{username}/{slug}` HTML 직접 반환 — og:title/description/image/url + twitter:card 메타 박힌 채로. `${app.spa.script-url}` env로 SPA bundle 경로 주입.
+- vite UA-bypass: bot UA(Twitterbot/kakaotalk-scrap/facebookexternalhit/Discordbot 등)는 backend로 proxy, 사람은 Vite SPA로 fallthrough → 사람도 깨끗히 SPA 부트스트랩.
+
+## 신고 시스템 + 운영자 권한 (v1에서 구현됨)
+
+저작권법 OSP §102~103 + 정보통신망법 면책 절차 충족 위해 v1.0 필수.
+
+- `Report` 엔티티 (libraryId/reporterUserId(nullable)/reason/details/status/createdAt)
+- `ReportReason` enum: ILLEGAL/COPYRIGHT/HARASSMENT/SPAM/OTHER
+- POST `/api/reports` 익명 허용 (인증 시 reporter id 저장)
+- 비공개 도서관 신고는 404 (존재 leak X)
+- 신고 받으면 backend log에 `[REPORT]` WARN — 운영자 모니터링용 (이메일 알림은 v2 SMTP 셋업 시)
+- 푸터에 "신고하기" 텍스트 링크 (헤더는 너무 두드러져서 푸터로 — UX/미관)
+- 약관 제6조의2 신설: 신고 절차, 24~48시간 처리 노력, 사전 통지 없는 비공개/삭제 권한
+
+**7일 공개 cooldown은 시도했다가 제거** — 트래픽 0 단계에선 봇 차단 효과 없고 실 사용자 마찰만. 신고 시스템 + 운영자 모니터링이 사후 대응으로 충분. 실제 봇 보이면 그때 도입.
+
+## 약관/방침 정적 페이지 (v1에서 구현됨)
+
+- `/privacy` (개인정보처리방침), `/terms` (이용약관) — 한국 PIPA + 정보통신망법 대응 (Google OAuth로 PII 받기 때문에 법적 필수)
+- 시행일/연락처는 페이지 상단 상수 (`OPERATOR_NAME`, `CONTACT_EMAIL`, `EFFECTIVE_DATE`)
+- 현재 `jaeyoung17711@gmail.com`. 사업자 등록 정보는 결제 도입 시 추가.
+
 ## 비주얼 디자인 방향 (확정)
 
 - **사이트 UI**: 라이트 크림 톤 (`#FAF7F2` 배경, `#2A2520` 텍스트, `#8B5A3C` 월넛 액센트) — 갤러리 벽 컨셉
@@ -116,11 +152,12 @@ type: project
 
 ## v1.0 후순위 (의도적 제외)
 
-Chrome 확장(직접 동기화), 모바일 동등 지원, 갤러리/피드, 테마 마켓플레이스, 결제, OG 이미지 생성.
+Chrome 확장(직접 동기화), 갤러리/피드, 테마 마켓플레이스, 결제.
 
-## 현재 v1.0 미구현 / 진행 중
+## 현재 v1.0 미구현 / 진행 중 (배포 전 남은 것)
 
-- **OG 이미지 자동 생성** (출시 필수, 아직 미구현)
-- **모바일 평면도 회전** (Pixi 좌표계로 90° 회전 — 데스크톱 가로 비율을 모바일 세로에 적용)
-- 데이터베이스 운영용(PostgreSQL) 전환 — 현재 H2 file mode
+- **운영 환경 PostgreSQL 전환** — 코드 호환은 끝(`@JdbcTypeCode` 적용), 실제 PG 인스턴스 검증은 배포 시
+- **배포** (Vercel + Railway) — 외부 시스템 셋업
+- **카카오톡/트위터 미리보기 검증** — 배포 후 핸드폰에서
+- **Google OAuth Console 운영 callback URL 등록**
 - 결제 시스템 + 유료 테마 (v2)

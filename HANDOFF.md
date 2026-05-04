@@ -1,5 +1,236 @@
 # HANDOFF
 
+## [2026-05-04] 세 번째 큰 세션 — 모바일 평면도 정착 + OG 자동화 + 약관/방침 + 신고 시스템 + 보안 audit + PG 호환
+
+전 PC에서 worktree(`.claude/worktrees/happy-faraday-a38598`)로 작업, 큰 묶음마다 `main`에 `merge --no-ff`. v1.0 코드는 사실상 완성 — 남은 건 외부 시스템 셋업(배포/도메인/OAuth 콘솔/소셜 미리보기 검증).
+
+### 오늘 한 일 (큰 묶음 단위)
+
+#### A. 모바일/태블릿 평면도 (viewport-aware 분기)
+
+- **입구 라벨 제거**: `🚪 입구 / 📜` 텍스트 제거. 빛 spill + 도어 프레임만 남아 시각적 입구 유지. [PixiLibraryScene.drawEntrance](frontend/src/components/library/PixiLibraryScene.tsx)
+- **9:16 portrait 분기 (폰)** — viewport.h > viewport.w 판정 + 컨테이너 aspectRatio 동적 + drawScene 내부 portrait 분기. 페데스탈을 입구 바로 아래 `PORTRAIT_PEDESTAL_BAND`(120px) 영역으로 이동, 책장은 좌우 4쌍 그대로 (shelfW=100, sideWallWidth=120). 프라이빗 문 폭 110→76, 라벨 🔒로 축약.
+- **모바일 캔버스 touch-action: pan-y** — Pixi 8 기본 `touch-action: none`이 모바일 페이지 스크롤 잠금 → `pan-y`로 풀어 페이지 스크롤은 브라우저, 탭은 Pixi가 받게.
+- **back-to-top 플로팅 버튼** — 우하단 walnut 원형, scrollY > 300px에서 등장. LibraryPage + PublicLibraryPage 양쪽.
+- **헤더 햄버거 메뉴** (<600px): 공유/창고/설정/로그아웃 접고, 가져오기는 모바일에서 완전 숨김 (Chrome mobile에 HTML export 없음). 사서 + 도서관 스위처만 노출.
+- **Landscape 실루엣 비대칭 재설계** — (0.5, 0.5) 둘러싼 대칭이 "기념사진 찍는 듯" 부자연스러움 → 좌우 미러/공유 yR 없는 슬롯 + jitter 22→44/18→36 확대.
+- **태블릿 portrait 5:7 분기** — iPad/Galaxy Tab(768~1080px) 세로일 때 9:16이면 너무 길쭉 + 실루엣 stack. `PortraitMode = 'phone' | 'tablet' | null`로 3분기. 폰 9:16, 태블릿 5:7, 데스크톱 16:9. `orientationchange` 이벤트도 함께 listen.
+- **실루엣 aisle-RELATIVE 매핑** — portrait 슬롯 xR을 0=좌측 책장 안쪽, 1=우측 책장 안쪽으로 재정의. drawSilhouettes가 런타임 aisle 경계로 픽셀 매핑 → 좁은 폰(110px)도 넓은 태블릿(500px)도 같은 슬롯 리스트로 자연 스케일.
+
+#### B. 책장/베스트셀러 collapsible + 책장 추가 버튼 위치 이동
+
+- ShelfCard / PublicShelfCard 헤더 클릭 → 책 목록 접고 펼침 (chevron 회전). 카운트/편집/+책 추가 버튼은 접힌 상태에서도 사용 가능.
+- 베스트셀러 섹션도 헤더 자체 토글, 카드 통째 접힘.
+- "+ 새 책장 추가" / "새 도서관 만들기 →" 버튼을 책장 목록 아래 → 위로 이동.
+- 공용 Chevron + CollapseHeader는 LibraryPage + PublicLibraryPage 양쪽에 동일 정의 (작은 SVG라 추출 X).
+
+#### C. OG 이미지 자동 생성 (Phase 1 + Phase 2)
+
+**Phase 1 — 캡처 + 저장 + 공개 서빙:**
+- `Library.ogImage`(byte[]) + `ogImageUpdatedAt`(Instant) — nullable
+- [LibraryService.updateOgImage](src/main/java/com/google/bookmark/service/LibraryService.java) — 1MB 한도 + 소유권 검증
+- `LibraryService.getPublicOgImageBytes` — 공개 도서관만 (private leak 차단)
+- POST `/api/libraries/{id}/og-image` (multipart, 인증, 204)
+- 신규 [OgImageController](src/main/java/com/google/bookmark/controller/OgImageController.java) — GET `/og/{username}/{slug}` 공개, image/png, 10분 캐시
+- application.yml `spring.servlet.multipart.max-file-size: 2MB`
+- 프론트 LibraryPage: 라이브러리 변경 후 1.5s debounce → `canvas.toBlob('image/png')` → 업로드. **데스크톱(≥600px) viewport에서만** 캡처해 OG 일관성 16:9 유지. 실패는 silent.
+- vite.config.ts `/og` 프록시.
+- **검정 PNG 이슈 수정**: Pixi 8 기본 WebGPU/WebGL `preserveDrawingBuffer:false` → canvas.toBlob 시 framebuffer 비어 검정. `preserveDrawingBuffer:true + preference:'webgl'` 강제로 해결.
+
+**Phase 2 — SSR HTML for crawlers:**
+- 신규 [PublicLibraryHtmlController](src/main/java/com/google/bookmark/controller/PublicLibraryHtmlController.java) `/u/{username}/{slug}` (text/html 반환)
+- `LibraryOgMetadata` DTO — 가벼운 read-only 뷰. 비공개/없음이면 generic fallback HTML.
+- og:title/description/image/url + twitter:card 태그를 `HtmlUtils.htmlEscape`로 안전하게 박음.
+- `<script type="module" src="${app.spa.script-url:/src/main.tsx}">` — env 변수로 prod 빌드 hash 갈아끼울 수 있게.
+- vite UA-bypass: bot UA(Twitterbot, kakaotalk-scrap, facebookexternalhit, Discordbot, Slackbot 등)는 backend로 proxy해서 OG-rich HTML, 사람 UA는 Vite의 SPA index.html(`/@react-refresh`/`/@vite/client` 주입 포함)로 bypass — 사람이 직접 `/u/*` 접근해도 SPA HMR이 깨지지 않음.
+
+검증: `Invoke-WebRequest -UserAgent "Twitterbot/1.0"` 로 응답 HTML에 og:image 메타 들어가는지 확인됨. 카톡/트위터 미리보기는 배포 후 폰에서 검증 예정 (현재 데스크톱에 카톡 미설치).
+
+#### D. 개인정보처리방침 + 이용약관 정적 페이지
+
+한국 PIPA + 정보통신망법 대응 — Google OAuth로 PII 받기 때문에 법적 필수.
+- 신규 [PrivacyPolicyPage](frontend/src/pages/PrivacyPolicyPage.tsx) — 11개 섹션
+- 신규 [TermsPage](frontend/src/pages/TermsPage.tsx) — 11+조 (제6조의2 신고 절차 신설 포함)
+- 공통 LegalPageShell (sticky header + 시행일 + 도서관으로 링크) + max-w-3xl 본문
+- App.tsx 라우트 추가 (`/privacy`, `/terms`, 인증 불필요)
+- LoginPage 약관/방침 텍스트를 실제 Link로 변경
+- LibraryPage + PublicLibraryPage 푸터에 "이용약관 · 개인정보처리방침" 링크
+- `CONTACT_EMAIL = "jaeyoung17711@gmail.com"`, `EFFECTIVE_DATE = "2026-05-04"`
+- 미해결: 사업자/통신판매업 신고 정보는 결제 도입 시 추가
+
+#### E. 신고 시스템
+
+공개 도서관에 불법/저작권 침해/스팸이 올라올 수 있는 위험에 대한 합리적 방어책. 트래픽 0인 v1 단계에서도 법적 면책(저작권법 OSP §102~103, 정보통신망법) 충족 위해 필수.
+
+- 신규 [Report 엔티티](src/main/java/com/google/bookmark/domain/Report.java) (libraryId/reporterUserId(nullable)/reason/details/status/createdAt)
+- `ReportReason` enum: ILLEGAL/COPYRIGHT/HARASSMENT/SPAM/OTHER
+- [ReportRepository](src/main/java/com/google/bookmark/repository/ReportRepository.java), [ReportService](src/main/java/com/google/bookmark/service/ReportService.java) (`@Slf4j` 로깅 — 신고 시 [REPORT] WARN 출력), [ReportController](src/main/java/com/google/bookmark/controller/ReportController.java)
+- POST `/api/reports` 익명 허용 (SecurityConfig permitAll), 인증 시 reporter id 저장
+- 비공개 도서관 신고는 404로 응답 (존재 leak X)
+- 프론트: [api/reports.ts](frontend/src/api/reports.ts) + [ReportModal](frontend/src/components/library/ReportModal.tsx) (라디오 사유 + textarea 1000자 + 접수 완료 화면)
+- 푸터에 "신고하기" 텍스트 링크 (이전엔 헤더 🚩 신고였는데 너무 두드러져서 푸터로 이동)
+
+약관 보강 (TermsPage):
+- 제6조에 피싱/멀웨어 추가
+- 제6조의2 신설: 신고 절차, 24~48시간 내 처리 노력, 사전 통지 없는 비공개/삭제, 허위 신고 시 신고 권한 제한
+
+**7일 공개 cooldown은 시도했다가 제거**: 트래픽 0인 v1 단계에선 봇 차단 효과 없고 실 사용자 마찰만 유발 (가입 후 일주일은 친구에게 공유 못 함). 신고 시스템 + 운영자 모니터링이 사후 대응으로 충분 — 실제 봇이 보이기 시작하면 그때 도입.
+
+미해결:
+- Spring Mail 이메일 알림 (배포 후 SMTP 설정 시)
+- 신고 누적 임계값 자동 비공개 (현재 운영자 수동)
+- 운영자 admin UI (현재 DB 직조회 / 로그 모니터링)
+
+#### F. 도서관 설정 모달 — 폼 에러 위치 분리
+
+기존엔 단일 `error` 상태가 TextInput "도서관 이름" 인라인에만 표시됨. 서버 에러도 이름 필드 아래에 떠서 사용자가 "이름이 잘못됐나?" 오해 가능. 분리:
+- `titleError`: 클라이언트 검증 (이름 빈 칸) — TextInput 인라인
+- `formError`: 서버 에러 — 저장 버튼 위 빨간 배너
+
+#### G. 보안 audit + 수정
+
+전체 코드 보안 검토 + 발견된 이슈 처리.
+
+**[HIGH] URL scheme 검증 추가**
+- CreateBookRequest.url, ImportEntry.url에 `@Pattern(^https?://.+)` 추가.
+- javascript:/data:/file:/vbscript: 등 위험 scheme 차단. React가 일부 막아주지만 백엔드에서 defense-in-depth.
+- 한국어 message ("URL은 http:// 또는 https:// 로 시작해야 합니다.")
+
+**[MEDIUM] OG 메타 책장 수 leak 차단**
+- `LibraryService.getPublicLibraryOgMetadata`의 bookshelfCount가 PRIVATE 룸까지 카운트해서 공유 페이지 OG description으로 PRIVATE 책장 수 추정 가능했음.
+- `BookshelfZone.PUBLIC`만 stream filter로 카운트해 leak 차단.
+
+**[MEDIUM] SecurityConfig 정책 조정**
+- 처음엔 `.anyRequest().authenticated()` (deny-by-default) 시도했으나 OAuth/error/Spring 내부 path가 깨져서 되돌림.
+- 최종: `/api/u/**` + `POST /api/reports`만 permitAll, `/api/**` authenticated, 그 외 (`/og/**`, `/u/**`, OAuth, `/login`, `/logout`, `/error`, 정적 자산, SPA fallthrough) `anyRequest().permitAll()`.
+- 핵심 보호 surface는 `/api/**` 만 — 새 /api endpoint 추가 시에도 자동으로 인증 강제.
+
+**[LOW-MED] Catch-all + 404 핸들러 분리**
+- `@ExceptionHandler(Exception.class)` 추가 — NPE/IllegalState 등 unexpected 시 stack은 server log, 클라엔 generic 한국어 메시지
+- `@ExceptionHandler({NoHandlerFoundException, NoResourceFoundException})` 별도 — 매핑 없는 path는 깨끗한 404 ("요청하신 경로를 찾을 수 없습니다.") 반환. 이전엔 catch-all이 잡아 500으로 둔갑시켰음.
+
+Audit 결과 견고했던 영역:
+- 모든 service의 `loadOwnedX(userId, id)` 패턴 — existence-leak X
+- 공개 도서관 응답이 `BookshelfZone.PUBLIC`만 필터
+- JPQL parameterized — SQL injection 안전
+- `searchByUserId`가 본인 데이터만
+- React 자동 escape (XSS)
+- JSESSIONID HttpOnly 기본, HTTPS 시 Secure 자동
+- DTO에 size/regex validation
+
+v2 deferred:
+- POST /api/reports rate limiting
+- OG 이미지 magic bytes 검증 (Spring Security nosniff 헤더로 일부 커버됨)
+
+#### H. PostgreSQL 호환 점검 + 수정
+
+배포 직전 H2 → PG 전환 대비.
+
+호환 확인됨:
+- `build.gradle`에 H2 + PostgreSQL 드라이버 둘 다 runtimeOnly
+- `application.yml`의 `postgres` 프로파일 ENV 변수 매핑 + `PostgreSQLDialect`
+- JPQL이 `lower()`/`coalesce()` 등 표준 SQL만 사용
+- 시더(ThemeSeedRunner, BookshelfThemeService, FloorThemeService)는 Spring Data JPA 표준
+
+수정 (PG 호환):
+- `Library.ogImage`: `@Lob byte[]` → `@JdbcTypeCode(SqlTypes.LONGVARBINARY)`. PG에서 Hibernate 6+ 기본 OID(Large Object) 매핑은 별도 트랜잭션 + 메모리 leak 위험 + bytea보다 비효율 → bytea로 강제.
+- `Library.welcomeMessage`, `Report.details`: `@Lob String` → `@JdbcTypeCode(SqlTypes.LONGVARCHAR)`. PG에서 OID 대신 text. `columnDefinition="TEXT"`는 그대로.
+
+배포 시 권장 (보류):
+- ddl-auto: update → 안정화 후 validate
+- Flyway/Liquibase 도입은 v2
+
+### 해결한 버그 (이번 세션)
+
+1. **OG PNG 검정 화면**: Pixi 8 기본 WebGPU/preserveDrawingBuffer:false → toBlob 시 framebuffer 비어 검정. `preserveDrawingBuffer:true + preference:'webgl'` 강제.
+2. **/u/* 사람 브라우저 빈 화면**: backend HTML이 Vite의 `/@react-refresh`, `/@vite/client` 주입 없어서 plugin-react 변환된 .tsx 가 `window.$RefreshReg$` 못 찾고 멈춤. UA bypass로 사람 UA는 Vite로 fallthrough.
+3. **모바일 평면도 위 스크롤 잠김**: Pixi 8 기본 `touch-action:none`. `app.canvas.style.touchAction = 'pan-y'` 명시.
+4. **태블릿 portrait 9:16 너무 길쭉 + 실루엣 stack**: aspect 5:7로 분기 + aisle-relative 슬롯 매핑.
+5. **도서관 설정 cooldown 메시지가 이름 필드 아래**: error 상태 분리 (titleError + formError).
+6. **/random-test 직접 접근 시 500**: catch-all이 NoResourceFoundException까지 잡아 500으로 둔갑. 별도 핸들러로 404.
+7. **신고 버튼 너무 두드러짐**: 헤더 우측 → 푸터 텍스트 링크로 이동.
+
+### 현재 상태
+
+#### 동작 확인됨 ✅
+- 폰/태블릿/데스크톱 평면도 자동 분기 (orientation 감지 포함)
+- 책장/베스트셀러 collapsible
+- OG 이미지 캡처 + 저장 + 공개 서빙 (Phase 1 dev에서 검증)
+- /u/* SSR HTML (Phase 2) — bot UA PowerShell 검증, 사람 UA는 SPA로 bypass
+- 개인정보처리방침 + 이용약관 정적 페이지 (jaeyoung17711@gmail.com)
+- 신고 시스템 (익명 OK, 5개 사유, 1000자 details, [REPORT] 로깅)
+- 보안 audit 4건 fix
+- PG 호환 @JdbcTypeCode 적용
+
+#### 미완성 / v1.0 출시 전 필수 ❌
+- **운영 환경 PostgreSQL 전환** — 코드 호환은 끝, 실제 PG 인스턴스에서 검증은 배포 시
+- **배포** (Vercel + Railway) — 외부 시스템 셋업 필요
+- **카카오톡/트위터/디스코드 미리보기 검증** — 배포 + 실제 핸드폰에서 확인
+- **Google OAuth Console에 운영 callback URL 추가**
+- **Vercel rewrites 설정** — `/u/*`, `/og/*`, `/api/*`를 백엔드(Railway)로 forward
+- **운영용 환경변수 채우기** — `GOOGLE_CLIENT_ID/SECRET`, `FRONTEND_URL`, `DB_*`, `SPA_SCRIPT_URL`(prod 빌드 hash)
+
+### 다음에 이어서 할 일
+
+1. **Railway 계정 + Spring Boot 배포** + managed Postgres 추가
+2. **Vercel 계정 + 프론트엔드 배포** + rewrites 설정
+3. **도메인 등록** (선택) + Google OAuth Console 운영 callback URL 등록
+4. **환경변수 양쪽에 채우기**
+5. **핸드폰 카카오톡으로 자기 자신한테 링크 보내서 미리보기 동작 확인**
+6. **이슈 발견 시 fix + 재배포**
+
+### 미해결 이슈 / 막힌 지점
+
+- **OG 이미지는 데스크톱에서만 캡처** — 모바일만 쓰는 사용자는 영영 OG 안 갱신. v2에서 한 번이라도 데스크톱 viewport 시뮬레이션 캡처 또는 admin trigger.
+- **신고 시스템 익명 무제한** — spam 가능. 트래픽 늘면 IP rate limit 추가.
+- **ddl-auto=update 그대로 배포** — schema 변경 잦으면 데이터 날릴 수도. 안정화 후 validate / Flyway.
+- **OG image 클라이언트 캡처 의존** — 사용자가 한 번이라도 자기 도서관 보지 않으면 OG 없음. fallback static OG PNG 추가하면 봇 깨끗.
+
+### 컨텍스트 / 주의사항
+
+#### 실행 방법 (변경 없음)
+1. IntelliJ Run Configuration: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` 환경변수 (직접 복사)
+2. Frontend: `cd frontend && npm install && npm run dev` → http://localhost:5173/login
+3. DB 기본 H2 file (`./data/bookmark.mv.db`). PG 쓰려면 `--spring.profiles.active=postgres` + 환경변수.
+
+#### 데이터 초기화 (스키마 충돌 시)
+1. Spring Boot 중지
+2. `data/` 폴더 삭제
+3. 재시작 → 스키마 재생성, 시드 자동 실행, 다음 로그인 시 User+Library 새로 생성
+
+#### 백엔드 구조 변화 (이번 세션)
+- 새 엔티티: `Report`, `ReportReason`
+- Library 엔티티: `ogImage`(byte[], `@JdbcTypeCode LONGVARBINARY`) + `ogImageUpdatedAt` 추가; `welcomeMessage`도 `@Lob` → `@JdbcTypeCode LONGVARCHAR`
+- 새 컨트롤러: `OgImageController`, `PublicLibraryHtmlController`, `ReportController`
+- 새 서비스: `ReportService`
+- 새 DTOs: `LibraryOgMetadata`, `ReportRequest`
+- LibraryService 메서드 추가: `updateOgImage`, `getPublicOgImageBytes`, `getPublicLibraryOgMetadata`
+- SecurityConfig: `/og/**`, `/u/**`, `POST /api/reports` permitAll 추가
+- GlobalExceptionHandler: catch-all `Exception.class` + 404 (`NoHandler/NoResourceFoundException`) 별도
+
+#### 프론트엔드 새/수정 파일 (이번 세션)
+- 새 페이지: `PrivacyPolicyPage`, `TermsPage`
+- 새 컴포넌트: `ReportModal`, 헤더 안의 `HamburgerMenu` (LibraryPage 내부)
+- 새 api: `reports.ts`, library.ts에 `uploadOgImage` 추가
+- 큰 수정: `PixiLibraryScene` (대규모 — phone/tablet/landscape 분기, aisle-relative 슬롯, OG WebGL 옵션, touch-action), `LibraryPage` (헤더 햄버거, OG 캡처 effect, back-to-top, 컬랩스 토글, 추가 버튼 위치, 폼 에러 분리), `PublicLibraryPage` (OG 메타 동적 주입, ReportModal, 컬랩스 토글, back-to-top, 푸터 링크), `LibrarySettingsModal` (titleError/formError 분리), `LoginPage` (Link 적용)
+- vite.config.ts: `/og` + `/u` 프록시 (UA bypass 포함)
+
+#### 새 환경변수 (배포 시)
+- `SPA_SCRIPT_URL` — Vite 빌드 결과 hash 경로 (default `/src/main.tsx` for dev). prod는 `/assets/index-XXX.js` 형식.
+
+#### 다른 PC에서 Claude 메모리 부트스트랩
+1. repo clone
+2. Claude Code 첫 메시지로:
+```
+이 프로젝트는 다른 PC에서 작업하다 넘어온 거야. 다음 순서로 컨텍스트를 잡아줘:
+1. HANDOFF.md를 읽어서 지금까지의 작업 내역과 다음 할 일 파악
+2. .claude/memory/*.md를 ~/.claude/projects/<이 프로젝트의 키>/memory/로 복사 (없으면 만들고, 있으면 머지)
+3. 환경 점검: data/ 폴더, .env, frontend/node_modules
+4. "준비 완료, 다음에 할 일은 [HANDOFF.md 기준 요약]" 보고하고 대기
+```
+
+---
+
 ## [2026-05-03] 두 번째 큰 작업 — 다중 도서관 + 검색 + 평면도 폴리시
 
 전 커밋 이후 진행한 큰 작업의 묶음. v1.0 거의 마무리 단계.
