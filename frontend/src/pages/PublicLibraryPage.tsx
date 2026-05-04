@@ -129,6 +129,7 @@ function PublicLibraryView({ library }: { library: Library }) {
         .slice(0, 20),
     [library],
   )
+  const [bestsellerExpanded, setBestsellerExpanded] = useState(true)
 
   // Refs for Pixi-scene → list-card scrolling
   const shelfCardRefs = useRef<Map<number, HTMLElement>>(new Map())
@@ -174,14 +175,21 @@ function PublicLibraryView({ library }: { library: Library }) {
 
         {favorites.length > 0 && (
           <section ref={bestsellerSectionRef} className="scroll-mt-24">
-            <SectionTitle title="✨ 베스트셀러" subtitle={`도서관장이 꼽은 ${favorites.length}권`} />
-            <Card padding="md">
-              <ul className="grid grid-cols-1 md:grid-cols-2 gap-1">
-                {favorites.map((book) => (
-                  <BookRow key={book.id} book={book} />
-                ))}
-              </ul>
-            </Card>
+            <CollapseHeader
+              expanded={bestsellerExpanded}
+              onToggle={() => setBestsellerExpanded((v) => !v)}
+              title="✨ 베스트셀러"
+              subtitle={`도서관장이 꼽은 ${favorites.length}권`}
+            />
+            {bestsellerExpanded && (
+              <Card padding="md">
+                <ul className="grid grid-cols-1 md:grid-cols-2 gap-1">
+                  {favorites.map((book) => (
+                    <BookRow key={book.id} book={book} />
+                  ))}
+                </ul>
+              </Card>
+            )}
           </section>
         )}
 
@@ -276,26 +284,93 @@ function PublicShelfCard({
   shelf: Bookshelf
   registerCard?: (id: number, el: HTMLElement | null) => void
 }) {
+  const [expanded, setExpanded] = useState(true)
   return (
     <Card
       padding="md"
       ref={(el) => registerCard?.(shelf.id, el)}
       className="transition-shadow scroll-mt-24"
     >
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="font-display text-lg font-semibold text-(--color-ink-strong)">{shelf.title}</h3>
-        <span className="text-xs text-(--color-ink-muted)">{shelf.books.length}권</span>
-      </div>
-      {shelf.books.length === 0 ? (
-        <p className="text-sm text-(--color-ink-muted) italic py-4 text-center">비어있는 책장</p>
-      ) : (
-        <ul className="grid grid-cols-1 md:grid-cols-2 gap-1">
-          {shelf.books.map((book) => (
-            <BookRow key={book.id} book={book} />
-          ))}
-        </ul>
-      )}
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        aria-label={expanded ? '책장 접기' : '책장 펼치기'}
+        className={`w-full flex items-center justify-between gap-3 text-left rounded-(--radius-sm) -m-1 p-1 hover:bg-(--color-surface-sunken) transition-colors ${
+          expanded ? 'mb-3' : ''
+        }`}
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <Chevron expanded={expanded} />
+          <h3 className="font-display text-lg font-semibold text-(--color-ink-strong) truncate">
+            {shelf.title}
+          </h3>
+        </div>
+        <span className="text-xs text-(--color-ink-muted) shrink-0">{shelf.books.length}권</span>
+      </button>
+      {expanded &&
+        (shelf.books.length === 0 ? (
+          <p className="text-sm text-(--color-ink-muted) italic py-4 text-center">비어있는 책장</p>
+        ) : (
+          <ul className="grid grid-cols-1 md:grid-cols-2 gap-1">
+            {shelf.books.map((book) => (
+              <BookRow key={book.id} book={book} />
+            ))}
+          </ul>
+        ))}
     </Card>
+  )
+}
+
+function CollapseHeader({
+  title,
+  subtitle,
+  expanded,
+  onToggle,
+}: {
+  title: string
+  subtitle: string
+  expanded: boolean
+  onToggle: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={expanded}
+      className="w-full text-left mb-4 flex items-start gap-3 rounded-(--radius-sm) -m-1 p-1 hover:bg-(--color-surface-sunken) transition-colors"
+    >
+      <Chevron expanded={expanded} className="mt-2" />
+      <div className="flex-1 min-w-0">
+        <h2 className="font-display text-2xl font-semibold text-(--color-ink-strong) tracking-tight">
+          {title}
+        </h2>
+        <p className="text-sm text-(--color-ink-muted) mt-1">{subtitle}</p>
+      </div>
+    </button>
+  )
+}
+
+function Chevron({ expanded, className = '' }: { expanded: boolean; className?: string }) {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 14 14"
+      fill="none"
+      aria-hidden="true"
+      className={`shrink-0 text-(--color-ink-muted) transition-transform duration-200 ${
+        expanded ? '' : '-rotate-90'
+      } ${className}`}
+    >
+      <path
+        d="M3 5L7 9L11 5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   )
 }
 

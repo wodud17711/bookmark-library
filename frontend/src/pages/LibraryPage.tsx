@@ -32,6 +32,8 @@ export default function LibraryPage() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [creatingLibrary, setCreatingLibrary] = useState(false)
   const [librarianOpen, setLibrarianOpen] = useState(false)
+  /** Bestseller section collapse state. Defaults to expanded. */
+  const [bestsellerExpanded, setBestsellerExpanded] = useState(true)
   /** Shelf to scroll to once a library switch finishes its refetch. */
   const [pendingScrollShelfId, setPendingScrollShelfId] = useState<number | null>(null)
 
@@ -200,38 +202,42 @@ export default function LibraryPage() {
 
         {favorites.length > 0 && (
           <section ref={bestsellerSectionRef} className="scroll-mt-24">
-            <SectionHeader
+            <CollapseHeader
+              expanded={bestsellerExpanded}
+              onToggle={() => setBestsellerExpanded((v) => !v)}
               title="✨ 베스트셀러"
               subtitle={`즐겨찾기한 ${favorites.length}권 · 도서관 입구 진열대에 놓여있습니다`}
             />
-            <Card padding="md">
-              <ul className="grid grid-cols-1 md:grid-cols-2 gap-1">
-                {favorites.slice(0, 20).map((book) => (
-                  <li key={book.id} className="flex items-center gap-3 px-3 py-2.5 rounded-(--radius-sm) hover:bg-(--color-surface-sunken) transition-colors">
-                    <span
-                      className="w-1.5 h-8 rounded-(--radius-xs) shrink-0"
-                      style={{ background: book.coverColor }}
-                      aria-hidden="true"
-                    />
-                    <a
-                      href={book.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex-1 min-w-0 text-[14px] text-(--color-ink-strong) hover:text-(--color-walnut-500) transition-colors truncate"
-                      title={book.url}
-                    >
-                      {book.title}
-                    </a>
-                    <span className="text-(--color-walnut-500) text-sm" title="베스트셀러">★</span>
-                  </li>
-                ))}
-              </ul>
-              {favorites.length > 20 && (
-                <p className="text-xs text-(--color-ink-muted) text-center mt-3">
-                  ⌂ 베스트셀러 진열대는 최대 20권까지 보여줍니다 (현재 {favorites.length}권 중 20권 표시)
-                </p>
-              )}
-            </Card>
+            {bestsellerExpanded && (
+              <Card padding="md">
+                <ul className="grid grid-cols-1 md:grid-cols-2 gap-1">
+                  {favorites.slice(0, 20).map((book) => (
+                    <li key={book.id} className="flex items-center gap-3 px-3 py-2.5 rounded-(--radius-sm) hover:bg-(--color-surface-sunken) transition-colors">
+                      <span
+                        className="w-1.5 h-8 rounded-(--radius-xs) shrink-0"
+                        style={{ background: book.coverColor }}
+                        aria-hidden="true"
+                      />
+                      <a
+                        href={book.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex-1 min-w-0 text-[14px] text-(--color-ink-strong) hover:text-(--color-walnut-500) transition-colors truncate"
+                        title={book.url}
+                      >
+                        {book.title}
+                      </a>
+                      <span className="text-(--color-walnut-500) text-sm" title="베스트셀러">★</span>
+                    </li>
+                  ))}
+                </ul>
+                {favorites.length > 20 && (
+                  <p className="text-xs text-(--color-ink-muted) text-center mt-3">
+                    ⌂ 베스트셀러 진열대는 최대 20권까지 보여줍니다 (현재 {favorites.length}권 중 20권 표시)
+                  </p>
+                )}
+              </Card>
+            )}
           </section>
         )}
 
@@ -239,14 +245,7 @@ export default function LibraryPage() {
           title="📚 책장"
           subtitle={`${library.bookshelves.length} / ${MAX_BOOKSHELVES_PER_LIBRARY} · 한 도서관에 최대 ${MAX_BOOKSHELVES_PER_LIBRARY}개`}
         >
-          <ShelfList
-            shelves={library.bookshelves.filter((s) => s.zone === 'PUBLIC')}
-            onAddBook={setAddingBookFor}
-            onEditShelf={setEditingShelf}
-            onEditBook={setEditingBook}
-            registerCard={registerShelfCard}
-          />
-          <div className="mt-4 flex items-center gap-3">
+          <div className="mb-4 flex items-center gap-3">
             <Button
               variant="secondary"
               onClick={() => setAddingShelf(true)}
@@ -266,6 +265,13 @@ export default function LibraryPage() {
               </button>
             )}
           </div>
+          <ShelfList
+            shelves={library.bookshelves.filter((s) => s.zone === 'PUBLIC')}
+            onAddBook={setAddingBookFor}
+            onEditShelf={setEditingShelf}
+            onEditBook={setEditingBook}
+            registerCard={registerShelfCard}
+          />
         </Section>
 
         <section ref={privateSectionRef} className="scroll-mt-24">
@@ -738,6 +744,7 @@ function ShelfCard({
   onEditBook: (book: Book) => void
   registerCard?: (id: number, el: HTMLElement | null) => void
 }) {
+  const [expanded, setExpanded] = useState(true)
   const usage = shelf.books.length / shelf.maxBooks
   const usageHue =
     usage < 0.7
@@ -753,16 +760,23 @@ function ShelfCard({
       ref={(el) => registerCard?.(shelf.id, el)}
       className="transition-shadow scroll-mt-24"
     >
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-3">
-          <h3 className="font-display text-lg font-semibold text-(--color-ink-strong)">
+      <div className={`flex items-center justify-between ${expanded ? 'mb-3' : ''}`}>
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          aria-label={expanded ? '책장 접기' : '책장 펼치기'}
+          className="flex items-center gap-3 min-w-0 flex-1 text-left rounded-(--radius-sm) -m-1 p-1 hover:bg-(--color-surface-sunken) transition-colors"
+        >
+          <Chevron expanded={expanded} />
+          <h3 className="font-display text-lg font-semibold text-(--color-ink-strong) truncate">
             {shelf.title}
           </h3>
-          <span className={`text-xs ${usageHue}`}>
+          <span className={`text-xs shrink-0 ${usageHue}`}>
             {shelf.books.length} / {shelf.maxBooks}
           </span>
-        </div>
-        <div className="flex items-center gap-1">
+        </button>
+        <div className="flex items-center gap-1 shrink-0 ml-2">
           <Button variant="ghost" size="sm" onClick={onAddBook} disabled={isFull}>
             {isFull ? '책장 가득' : '+ 책 추가'}
           </Button>
@@ -772,16 +786,73 @@ function ShelfCard({
         </div>
       </div>
 
-      {shelf.books.length === 0 ? (
-        <EmptyShelf onAddBook={onAddBook} />
-      ) : (
-        <ul className="grid grid-cols-1 md:grid-cols-2 gap-1">
-          {shelf.books.map((book) => (
-            <BookRow key={book.id} book={book} onEdit={() => onEditBook(book)} />
-          ))}
-        </ul>
-      )}
+      {expanded &&
+        (shelf.books.length === 0 ? (
+          <EmptyShelf onAddBook={onAddBook} />
+        ) : (
+          <ul className="grid grid-cols-1 md:grid-cols-2 gap-1">
+            {shelf.books.map((book) => (
+              <BookRow key={book.id} book={book} onEdit={() => onEditBook(book)} />
+            ))}
+          </ul>
+        ))}
     </Card>
+  )
+}
+
+/**
+ * Section header with a chevron toggle. Used for the bestseller section above
+ * the bookshelves so the owner can collapse it once they've scanned the list.
+ */
+function CollapseHeader({
+  title,
+  subtitle,
+  expanded,
+  onToggle,
+}: {
+  title: string
+  subtitle: string
+  expanded: boolean
+  onToggle: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={expanded}
+      className="w-full text-left mb-4 flex items-start gap-3 rounded-(--radius-sm) -m-1 p-1 hover:bg-(--color-surface-sunken) transition-colors"
+    >
+      <Chevron expanded={expanded} className="mt-2" />
+      <div className="flex-1 min-w-0">
+        <h2 className="font-display text-2xl font-semibold text-(--color-ink-strong) tracking-tight">
+          {title}
+        </h2>
+        <p className="text-sm text-(--color-ink-muted) mt-1">{subtitle}</p>
+      </div>
+    </button>
+  )
+}
+
+function Chevron({ expanded, className = '' }: { expanded: boolean; className?: string }) {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 14 14"
+      fill="none"
+      aria-hidden="true"
+      className={`shrink-0 text-(--color-ink-muted) transition-transform duration-200 ${
+        expanded ? '' : '-rotate-90'
+      } ${className}`}
+    >
+      <path
+        d="M3 5L7 9L11 5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   )
 }
 
