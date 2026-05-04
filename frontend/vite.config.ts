@@ -32,13 +32,28 @@ export default defineConfig({
         target: 'http://localhost:8081',
         changeOrigin: true,
       },
-      // Public-share HTML — Spring Boot returns the page with OG meta tags
-      // baked in so link-preview crawlers see them without running JS. The
-      // returned HTML's <script> tag still bootstraps the SPA from this dev
-      // server, so human visitors get the full app.
+      // Public-share HTML for crawlers — Spring Boot returns the page with
+      // OG meta tags baked in so link-preview bots (Twitterbot, kakaotalk-scrap,
+      // facebookexternalhit, Discordbot, etc.) see them without running JS.
+      //
+      // Human visitors are bypassed to Vite's index.html so the dev-server's
+      // /@vite/client + /@react-refresh injections fire — without them the
+      // plugin-react transform of .tsx files crashes (window.$RefreshReg$
+      // undefined) and the page renders blank. In production the backend
+      // serves the same HTML to everyone since the bundled <script> tag
+      // doesn't need Vite's dev-only injections.
       '/u': {
         target: 'http://localhost:8081',
         changeOrigin: true,
+        bypass: (req) => {
+          const ua = req.headers['user-agent'] || ''
+          const isCrawler =
+            /bot|crawler|spider|preview|facebookexternalhit|kakaotalk-scrap|Twitterbot|Discordbot|Slackbot|Applebot|LinkedInBot/i.test(
+              ua,
+            )
+          // undefined → proxy to backend; '/index.html' → let Vite serve SPA.
+          return isCrawler ? undefined : '/index.html'
+        },
       },
     },
   },
