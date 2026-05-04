@@ -42,16 +42,18 @@ const MOBILE_BREAKPOINT = 600
 // browser windows on a desktop don't accidentally trip the portrait branch.
 const TABLET_PORTRAIT_MAX_WIDTH = 1080
 
-function shouldUsePortrait(): boolean {
-  if (typeof window === 'undefined') return false
-  if (window.innerWidth < MOBILE_BREAKPOINT) return true
+type PortraitMode = 'phone' | 'tablet' | null
+
+function detectPortraitMode(): PortraitMode {
+  if (typeof window === 'undefined') return null
+  if (window.innerWidth < MOBILE_BREAKPOINT) return 'phone'
   if (
     window.innerWidth < TABLET_PORTRAIT_MAX_WIDTH &&
     window.innerHeight > window.innerWidth
   ) {
-    return true
+    return 'tablet'
   }
-  return false
+  return null
 }
 
 /**
@@ -74,17 +76,15 @@ export function PixiLibraryScene(props: Props) {
   const propsRef = useRef(props)
   propsRef.current = props
 
-  // Mobile portrait detection — drives both the host aspect-ratio (9:16 vs 16:9)
-  // and the internal layout branch in drawScene. ResizeObserver re-runs drawScene
-  // whenever the host changes size, so flipping the aspect-ratio re-renders the
-  // floor plan in the new orientation automatically. Triggers for small phones
-  // AND for tablets held vertically (where width still leaves the desktop
-  // 16:9 layout too narrow).
-  const [isPortrait, setIsPortrait] = useState<boolean>(shouldUsePortrait)
+  // Three layouts: phone (9:16, tall narrow), tablet portrait (5:7, near-square),
+  // landscape desktop (16:9). drawScene infers portrait branch from H > W on
+  // the canvas itself, so phone and tablet share internal layout — only the
+  // host's aspect ratio differs.
+  const [portraitMode, setPortraitMode] = useState<PortraitMode>(detectPortraitMode)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const update = () => setIsPortrait(shouldUsePortrait())
+    const update = () => setPortraitMode(detectPortraitMode())
     window.addEventListener('resize', update)
     // Some tablets fire orientationchange before the layout viewport updates;
     // listen explicitly so the swap is responsive to physical rotation.
@@ -177,9 +177,14 @@ export function PixiLibraryScene(props: Props) {
       ref={containerRef}
       className="w-full rounded-(--radius-lg) overflow-hidden border border-(--color-line) shadow-(--shadow-md)"
       style={
-        isPortrait
+        portraitMode === 'phone'
           ? { aspectRatio: '9 / 16', minHeight: 520, maxHeight: '85vh' }
-          : { aspectRatio: '16 / 9', minHeight: 440, maxHeight: 680 }
+          : portraitMode === 'tablet'
+            ? // Near-square — full 9:16 on tablet would clip into 85vh anyway,
+              // and a 5:7 source ratio reads better when content (shelves +
+              // pedestal + silhouettes) needs both vertical and horizontal room.
+              { aspectRatio: '5 / 7', minHeight: 600, maxHeight: '78vh' }
+            : { aspectRatio: '16 / 9', minHeight: 440, maxHeight: 680 }
       }
     />
   )
@@ -853,21 +858,28 @@ const SILHOUETTE_SLOTS: Array<{ xR: number; yR: number }> = [
 ]
 
 /**
- * Portrait slots: kept inside the narrow central aisle between the left and
- * right shelf walls (xR ≈ 0.45–0.55) so silhouettes never overlap shelves.
- * yR span avoids the pedestal band at top and the private door at bottom.
+ * Portrait slots — xR is AISLE-RELATIVE (0 = just inside the left shelf, 1 =
+ * just inside the right shelf), not canvas-relative. The actual pixel
+ * position is computed in drawSilhouettes from the runtime aisle bounds.
+ *
+ * This way the same slot list works for narrow phone aisles (~110px) and
+ * wide tablet aisles (~500px) without slots clipping into shelves on phones
+ * or all stacking into a thin center column on tablets.
+ *
+ * yR is canvas-relative as before — span avoids the pedestal band at top
+ * and the private door at bottom.
  */
 const PORTRAIT_SILHOUETTE_SLOTS: Array<{ xR: number; yR: number }> = [
-  { xR: 0.50, yR: 0.42 },
-  { xR: 0.50, yR: 0.50 },
-  { xR: 0.46, yR: 0.58 },
-  { xR: 0.54, yR: 0.58 },
-  { xR: 0.50, yR: 0.66 },
-  { xR: 0.46, yR: 0.74 },
-  { xR: 0.54, yR: 0.74 },
-  { xR: 0.50, yR: 0.80 },
-  { xR: 0.46, yR: 0.86 },
-  { xR: 0.54, yR: 0.86 },
+  { xR: 0.50, yR: 0.40 }, // upper aisle, center
+  { xR: 0.28, yR: 0.50 }, // left of aisle
+  { xR: 0.72, yR: 0.55 }, // right of aisle (asymmetric y)
+  { xR: 0.45, yR: 0.62 },
+  { xR: 0.62, yR: 0.70 },
+  { xR: 0.22, yR: 0.74 },
+  { xR: 0.78, yR: 0.80 },
+  { xR: 0.50, yR: 0.84 },
+  { xR: 0.36, yR: 0.90 },
+  { xR: 0.65, yR: 0.90 },
 ]
 
 function drawSilhouettes(
@@ -885,19 +897,35 @@ function drawSilhouettes(
   const seed = library.id ?? 1
   const inkColor = invertReadable(floor.primary)
   const slots = portrait ? PORTRAIT_SILHOUETTE_SLOTS : SILHOUETTE_SLOTS
-  // Portrait: tight jitter so figures stay inside the narrow central aisle.
-  // Landscape: large jitter so the 10 filled slots don't read as a designed
-  // ring — the deterministic seed-based offset still keeps placements stable
-  // per library, but pulls neighbors apart enough to look human-placed.
-  const jitterRangeX = portrait ? 8 : 44
-  const jitterRangeY = portrait ? 12 : 36
+
+  // Portrait: aisle bounds in pixels so slot xR (0..1) maps onto the actual
+  // walkable column between the left and right shelf walls. Phone narrow,
+  // tablet wide — same slot list scales smoothly to either.
+  let aisleStart = 0
+  let aisleSpan = W
+  if (portrait) {
+    const shelfW = Math.min(PORTRAIT_MAX_SHELF_WIDTH, PORTRAIT_SIDE_WALL_WIDTH - 20)
+    const buffer = 14
+    aisleStart = PADDING + shelfW + buffer
+    aisleSpan = W - PADDING - shelfW - buffer - aisleStart
+  }
+
+  // Portrait: tight jitter so figures stay clear of shelves. Scale by aisle
+  // width so wide-aisle (tablet) gets more scatter than narrow-aisle (phone).
+  // Landscape: large jitter so the 10 filled slots don't read as a designed ring.
+  const jitterRangeX = portrait
+    ? Math.min(20, Math.max(8, Math.floor(aisleSpan / 28)))
+    : 44
+  const jitterRangeY = portrait ? 16 : 36
 
   for (let i = 0; i < count; i++) {
     const slot = slots[i]
     // Deterministic per-library jitter so silhouettes feel placed, not perfectly aligned.
     const jitterX = ((seed * 17 + i * 31) % jitterRangeX) - jitterRangeX / 2
     const jitterY = ((seed * 13 + i * 19) % jitterRangeY) - jitterRangeY / 2
-    const x = W * slot.xR + jitterX
+    const x = portrait
+      ? aisleStart + slot.xR * aisleSpan + jitterX
+      : W * slot.xR + jitterX
     const y = H * slot.yR + jitterY
     const facingRight = ((seed + i * 7) % 2) === 0
     drawSilhouette(stage, x, y, facingRight, inkColor)
