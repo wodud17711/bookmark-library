@@ -21,7 +21,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -34,11 +33,6 @@ public class LibraryService {
     /** Refuse OG uploads larger than this so the database doesn't bloat with
      *  multi-megabyte snapshots. A 16:9 PNG of the floor plan is ~150–400KB. */
     private static final int MAX_OG_IMAGE_BYTES = 1024 * 1024; // 1 MB
-
-    /** Wait this long after signup before letting an account flip a library to
-     *  public — slows down throwaway-account spam without much friction for
-     *  real users. Surface as a clear Korean message when blocked. */
-    private static final Duration PUBLIC_COOLDOWN_AFTER_SIGNUP = Duration.ofDays(7);
 
     private final LibraryRepository libraryRepository;
     private final UserRepository userRepository;
@@ -202,34 +196,9 @@ public class LibraryService {
             library.setEntranceMood(EntranceMood.valueOf(request.entranceMood()));
         }
         if (request.isPublic() != null) {
-            // Block private→public on accounts younger than the cooldown window.
-            // Private→ private and public→ * pass through unchanged.
-            if (request.isPublic() && !library.isPublic()) {
-                enforcePublicCooldown(library.getUser());
-            }
             library.setPublic(request.isPublic());
         }
         return toResponse(library);
-    }
-
-    private void enforcePublicCooldown(User user) {
-        Instant signupAt = user.getCreatedAt();
-        if (signupAt == null) return; // legacy/seed rows — don't block
-        Instant cooldownEnd = signupAt.plus(PUBLIC_COOLDOWN_AFTER_SIGNUP);
-        Instant now = Instant.now();
-        if (now.isBefore(cooldownEnd)) {
-            long daysRemaining = Duration.between(now, cooldownEnd).toDays();
-            // Round up so "0 days remaining" never shows when there are still hours left.
-            if (Duration.between(now, cooldownEnd).toHoursPart() > 0) daysRemaining++;
-            throw new ResponseStatusException(
-                HttpStatus.FORBIDDEN,
-                String.format(
-                    "스팸 방지를 위해 가입 후 %d일이 지나야 도서관을 공개할 수 있어요. (%d일 남음)",
-                    PUBLIC_COOLDOWN_AFTER_SIGNUP.toDays(),
-                    Math.max(1, daysRemaining)
-                )
-            );
-        }
     }
 
     private Library loadCurrentLibrary(Long userId) {
