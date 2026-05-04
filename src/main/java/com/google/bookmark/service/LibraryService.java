@@ -20,12 +20,18 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class LibraryService {
+
+    /** Refuse OG uploads larger than this so the database doesn't bloat with
+     *  multi-megabyte snapshots. A 16:9 PNG of the floor plan is ~150–400KB. */
+    private static final int MAX_OG_IMAGE_BYTES = 1024 * 1024; // 1 MB
 
     private final LibraryRepository libraryRepository;
     private final UserRepository userRepository;
@@ -119,6 +125,36 @@ public class LibraryService {
         User user = library.getUser();
         user.setCurrentLibraryId(library.getId());
         return toResponse(library);
+    }
+
+    // ─── OG image (frontend-rendered snapshot) ───────────
+
+    @Transactional
+    public void updateOgImage(Long userId, Long libraryId, byte[] imageBytes) {
+        if (imageBytes == null || imageBytes.length == 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "OG 이미지가 비어있어요.");
+        }
+        if (imageBytes.length > MAX_OG_IMAGE_BYTES) {
+            throw new ResponseStatusException(
+                HttpStatus.PAYLOAD_TOO_LARGE,
+                String.format(
+                    "OG 이미지가 너무 큽니다. (최대 %dKB)",
+                    MAX_OG_IMAGE_BYTES / 1024
+                )
+            );
+        }
+        Library library = loadOwnedLibrary(userId, libraryId);
+        library.setOgImage(imageBytes);
+        library.setOgImageUpdatedAt(Instant.now());
+    }
+
+    /** Public OG image bytes for {@code /og/{username}/{slug}}. Empty if the
+     *  library is private, missing, or hasn't been snapshotted yet. */
+    public Optional<byte[]> getPublicOgImageBytes(String username, String slug) {
+        return libraryRepository.findByUserUsernameAndSlug(username, slug)
+            .filter(Library::isPublic)
+            .map(Library::getOgImage)
+            .filter(bytes -> bytes != null && bytes.length > 0);
     }
 
     // ─── Internal ────────────────────────────────────────

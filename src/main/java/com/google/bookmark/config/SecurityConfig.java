@@ -28,6 +28,8 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 // Public share endpoints — viewable without sign-in
                 .requestMatchers("/api/u/**").permitAll()
+                // Public OG image bytes — fetched by social-media crawlers
+                .requestMatchers("/og/**").permitAll()
                 .requestMatchers("/api/**").authenticated()
                 .anyRequest().permitAll()
             )

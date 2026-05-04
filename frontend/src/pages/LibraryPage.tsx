@@ -15,7 +15,7 @@ import { PixiLibraryScene } from '../components/library/PixiLibraryScene'
 import { LibrarySwitcher } from '../components/library/LibrarySwitcher'
 import { CreateLibraryModal } from '../components/library/CreateLibraryModal'
 import { LibrarianModal } from '../components/library/LibrarianModal'
-import { switchCurrentLibrary } from '../api/library'
+import { switchCurrentLibrary, uploadOgImage } from '../api/library'
 
 export default function LibraryPage() {
   const [me, setMe] = useState<Me | null>(null)
@@ -110,6 +110,39 @@ export default function LibraryPage() {
     ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [])
 
+  // Wrapper around the Pixi scene so we can find its canvas after draw and
+  // snapshot it for the library's OG image.
+  const sceneWrapRef = useRef<HTMLDivElement | null>(null)
+
+  /**
+   * After the Pixi scene draws (debounced 1.5s after each library data
+   * change), capture the canvas as a PNG and upload it as the library's OG
+   * image. Skipped on mobile portrait so social previews always use the
+   * desktop 16:9 composition. Failures are silent — this is a background
+   * sync, not a user-visible action.
+   */
+  useEffect(() => {
+    if (!library) return
+    if (typeof window === 'undefined') return
+    if (window.innerWidth < 600) return // desktop snapshots only
+
+    const t = window.setTimeout(() => {
+      const canvas = sceneWrapRef.current?.querySelector('canvas')
+      if (!canvas) return
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) return
+          uploadOgImage(library.id, blob).catch(() => {
+            // Silent — owner is just browsing; don't surface failures here.
+          })
+        },
+        'image/png',
+        0.92,
+      )
+    }, 1500)
+    return () => window.clearTimeout(t)
+  }, [library])
+
   const favorites = useMemo(
     () =>
       library?.bookshelves
@@ -151,17 +184,19 @@ export default function LibraryPage() {
       />
 
       <main className="flex-1 max-w-6xl w-full mx-auto px-6 py-10 space-y-10">
-        <PixiLibraryScene
-          library={library}
-          favoritesCount={favorites.length}
-          storageCount={storageCount}
-          privateCount={library.bookshelves.filter((s) => s.zone === 'PRIVATE').length}
-          onShelfClick={handleShelfClickInScene}
-          onEntranceClick={() => setSettingsOpen(true)}
-          onBestsellerClick={() => scrollToSection(bestsellerSectionRef)}
-          onPrivateClick={() => scrollToSection(privateSectionRef)}
-          onStorageClick={() => setStorageOpen(true)}
-        />
+        <div ref={sceneWrapRef}>
+          <PixiLibraryScene
+            library={library}
+            favoritesCount={favorites.length}
+            storageCount={storageCount}
+            privateCount={library.bookshelves.filter((s) => s.zone === 'PRIVATE').length}
+            onShelfClick={handleShelfClickInScene}
+            onEntranceClick={() => setSettingsOpen(true)}
+            onBestsellerClick={() => scrollToSection(bestsellerSectionRef)}
+            onPrivateClick={() => scrollToSection(privateSectionRef)}
+            onStorageClick={() => setStorageOpen(true)}
+          />
+        </div>
 
         {favorites.length > 0 && (
           <section ref={bestsellerSectionRef} className="scroll-mt-24">

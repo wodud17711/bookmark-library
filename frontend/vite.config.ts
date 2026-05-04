@@ -26,6 +26,12 @@ export default defineConfig({
         target: 'http://localhost:8081',
         changeOrigin: true,
       },
+      // Public OG image bytes — fetched by social-media crawlers AND embedded
+      // as a same-origin URL in the <meta og:image> tag of /u/* pages.
+      '/og': {
+        target: 'http://localhost:8081',
+        changeOrigin: true,
+      },
     },
   },
 })

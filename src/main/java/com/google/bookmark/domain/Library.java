@@ -87,6 +87,19 @@ public class Library {
     @Column(name = "entrance_mood", nullable = false, length = 16)
     private EntranceMood entranceMood = EntranceMood.DAY;
 
+    /**
+     * Pre-rendered Open Graph image bytes (PNG). The frontend snapshots its own
+     * Pixi floor plan after draw completes and uploads it here, so social link
+     * previews can show the actual library without a headless renderer on the
+     * server. Nullable until the owner has visited their library on desktop.
+     */
+    @Lob
+    @Column(name = "og_image")
+    private byte[] ogImage;
+
+    @Column(name = "og_image_updated_at")
+    private Instant ogImageUpdatedAt;
+
     @OneToMany(mappedBy = "library", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @OrderBy("position ASC")
     private List<Bookshelf> bookshelves = new ArrayList<>();
