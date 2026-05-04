@@ -8,12 +8,13 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
-import jakarta.persistence.Lob;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 
@@ -53,8 +54,9 @@ public class Report {
     @Column(nullable = false, length = 32)
     private ReportReason reason;
 
-    /** Optional free-text context from the reporter. Capped at 1000 chars. */
-    @Lob
+    /** Optional free-text context from the reporter. Capped at 1000 chars.
+     *  {@code LONGVARCHAR} avoids PG OID mapping just like Library.welcomeMessage. */
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Column(columnDefinition = "TEXT")
     private String details;
 
