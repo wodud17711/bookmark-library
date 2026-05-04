@@ -220,7 +220,41 @@ function PublicLibraryView({ library }: { library: Library }) {
           📚 북마크 도서관
         </p>
       </footer>
+      <BackToTopButton />
     </div>
+  )
+}
+
+function BackToTopButton() {
+  const [visible, setVisible] = useState(false)
+
+  useEffect(() => {
+    const onScroll = () => setVisible(window.scrollY > 300)
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
+  if (!visible) return null
+
+  return (
+    <button
+      type="button"
+      onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+      aria-label="맨 위로"
+      title="맨 위로"
+      className="fixed bottom-5 right-5 z-30 w-11 h-11 rounded-full bg-(--color-walnut-500) text-white shadow-(--shadow-lg) hover:bg-(--color-walnut-700) active:scale-95 transition-all flex items-center justify-center"
+    >
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+        <path
+          d="M9 14V4M9 4L4 9M9 4L14 9"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </button>
   )
 }
 
