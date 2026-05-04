@@ -67,6 +67,56 @@ export default function PublicLibraryPage() {
 }
 
 function PublicLibraryView({ library }: { library: Library }) {
+  // Inject OG / Twitter card meta tags so the share URL gets a rich preview.
+  // The og:image URL points to the backend snapshot endpoint; the owner's
+  // desktop visit populates that snapshot. Crawlers that don't run JS won't
+  // see this — proper SSR/HTML rendering for /u/* is tracked as Phase 2.
+  useEffect(() => {
+    const prevTitle = document.title
+    const titleText = `${library.title} · @${library.ownerUsername} 도서관`
+    document.title = titleText
+
+    const description =
+      (library.welcomeMessage && library.welcomeMessage.trim()) ||
+      `${library.ownerDisplayName}님의 북마크 도서관 — 책장 ${library.bookshelves.length}개`
+    const truncated = description.length > 200 ? description.slice(0, 197) + '…' : description
+
+    const ogImageUrl = `${window.location.origin}/og/${encodeURIComponent(
+      library.ownerUsername,
+    )}/${encodeURIComponent(library.slug)}`
+
+    const tags: Array<{ key: string; attr: 'property' | 'name'; content: string }> = [
+      { key: 'og:title', attr: 'property', content: titleText },
+      { key: 'og:description', attr: 'property', content: truncated },
+      { key: 'og:image', attr: 'property', content: ogImageUrl },
+      { key: 'og:url', attr: 'property', content: window.location.href },
+      { key: 'og:type', attr: 'property', content: 'website' },
+      { key: 'twitter:card', attr: 'name', content: 'summary_large_image' },
+      { key: 'twitter:title', attr: 'name', content: titleText },
+      { key: 'twitter:description', attr: 'name', content: truncated },
+      { key: 'twitter:image', attr: 'name', content: ogImageUrl },
+      { key: 'description', attr: 'name', content: truncated },
+    ]
+
+    const owned: HTMLMetaElement[] = []
+    for (const { key, attr, content } of tags) {
+      let el = document.head.querySelector<HTMLMetaElement>(`meta[${attr}="${key}"]`)
+      if (!el) {
+        el = document.createElement('meta')
+        el.setAttribute(attr, key)
+        document.head.appendChild(el)
+        owned.push(el)
+      }
+      el.setAttribute('content', content)
+    }
+
+    return () => {
+      document.title = prevTitle
+      // Remove only the meta tags we created; leave any pre-existing ones alone.
+      for (const el of owned) el.remove()
+    }
+  }, [library])
+
   const totalBooks = useMemo(
     () => library.bookshelves.reduce((sum, s) => sum + s.books.length, 0),
     [library],

@@ -120,6 +120,20 @@ export async function updateLibrary(payload: UpdateLibraryPayload): Promise<Libr
   return data
 }
 
+/**
+ * Upload an Open Graph snapshot for a library. The frontend snapshots its own
+ * Pixi floor plan (`canvas.toBlob('image/png')`) once the scene has drawn, so
+ * social-link previews can show the actual library. Backend serves the bytes
+ * publicly at {@code /og/{username}/{slug}}.
+ */
+export async function uploadOgImage(libraryId: number, blob: Blob): Promise<void> {
+  const fd = new FormData()
+  fd.append('image', blob, 'og.png')
+  // Don't set Content-Type — axios picks the right multipart/form-data with
+  // the correct boundary automatically when the body is FormData.
+  await apiClient.post(`/libraries/${libraryId}/og-image`, fd)
+}
+
 // ─── Bookshelf ──────────────────────────────────────────
 
 export interface CreateBookshelfPayload {

@@ -16,10 +16,13 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.io.IOException;
 import java.util.List;
 
 @RestController
@@ -81,6 +84,30 @@ public class LibraryController {
     ) {
         require(principal);
         return libraryService.switchCurrentLibrary(principal.getUserId(), id);
+    }
+
+    /**
+     * Owner-uploaded snapshot of the Pixi floor plan, persisted as the
+     * library's OG image. The frontend captures `canvas.toBlob('image/png')`
+     * after the scene draws and posts it here. See {@code OgImageController}
+     * for the public read side.
+     */
+    @PostMapping("/libraries/{id}/og-image")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void uploadOgImage(
+        @AuthenticationPrincipal UserPrincipal principal,
+        @PathVariable Long id,
+        @RequestParam("image") MultipartFile image
+    ) throws IOException {
+        require(principal);
+        if (image == null || image.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미지 파일이 비어있어요.");
+        }
+        String contentType = image.getContentType();
+        if (contentType == null || !contentType.startsWith("image/")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미지 파일만 업로드할 수 있어요.");
+        }
+        libraryService.updateOgImage(principal.getUserId(), id, image.getBytes());
     }
 
     private static void require(UserPrincipal principal) {
