@@ -162,6 +162,9 @@ public class LibraryService {
      * OG metadata for the public-share HTML at {@code /u/{username}/{slug}}.
      * Returns empty if the library doesn't exist or is private — the caller
      * should serve a generic fallback in that case so crawlers don't 500.
+     *
+     * <p>Counts only PUBLIC bookshelves so a visitor can't infer the size of
+     * the owner's private room from the share-page meta description.
      */
     public Optional<LibraryOgMetadata> getPublicLibraryOgMetadata(String username, String slug) {
         return libraryRepository.findByUserUsernameAndSlug(username, slug)
@@ -172,7 +175,9 @@ public class LibraryService {
                 lib.getUser().getUsername(),
                 lib.getUser().getDisplayName(),
                 lib.getSlug(),
-                lib.getBookshelves().size(),
+                (int) lib.getBookshelves().stream()
+                    .filter(s -> s.getZone() == BookshelfZone.PUBLIC)
+                    .count(),
                 lib.getOgImage() != null && lib.getOgImage().length > 0
             ));
     }

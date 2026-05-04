@@ -27,7 +27,8 @@ public class SecurityConfig {
         http
             .csrf(csrf -> csrf.ignoringRequestMatchers("/api/**"))
             .authorizeHttpRequests(auth -> auth
-                // Public share endpoints — viewable without sign-in
+                // ─── Explicitly public ────────────────────────────────
+                // Public share JSON endpoints — viewable without sign-in
                 .requestMatchers("/api/u/**").permitAll()
                 // Public OG image bytes — fetched by social-media crawlers
                 .requestMatchers("/og/**").permitAll()
@@ -35,8 +36,20 @@ public class SecurityConfig {
                 .requestMatchers("/u/**").permitAll()
                 // Anonymous report submissions — anyone with a share URL can flag content
                 .requestMatchers(HttpMethod.POST, "/api/reports").permitAll()
+                // OAuth2 flow paths — entry points and callback handlers
+                .requestMatchers("/oauth2/**", "/login/oauth2/**", "/login").permitAll()
+                // Logout endpoint — public so users can sign out cleanly
+                .requestMatchers("/logout").permitAll()
+                // Static resources / favicon / common public assets
+                .requestMatchers("/", "/favicon.svg", "/error").permitAll()
+
+                // ─── All authenticated API ────────────────────────────
                 .requestMatchers("/api/**").authenticated()
-                .anyRequest().permitAll()
+
+                // ─── Deny by default ──────────────────────────────────
+                // Anything not explicitly permitted above requires auth.
+                // Adding a new endpoint won't accidentally make it public.
+                .anyRequest().authenticated()
             )
             .oauth2Login(oauth -> oauth
                 .userInfoEndpoint(userInfo -> userInfo
