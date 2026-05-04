@@ -42,14 +42,31 @@ public class BookshelfThemeService {
 
     @Transactional
     public void seedDefaultsIfMissing() {
-        seedIfMissing(walnut());
-        seedIfMissing(pine());
-        seedIfMissing(industrial());
+        upsert(walnut());
+        upsert(pine());
+        upsert(industrial());
     }
 
-    private void seedIfMissing(BookshelfTheme theme) {
-        if (themeRepository.existsById(theme.getId())) return;
-        themeRepository.save(theme);
+    /**
+     * Seed-as-source-of-truth: insert if missing, otherwise sync display
+     * fields so changes in code propagate on next startup. The id
+     * (referenced by Library.paletteName) is never changed.
+     */
+    private void upsert(BookshelfTheme incoming) {
+        BookshelfTheme existing = themeRepository.findById(incoming.getId()).orElse(null);
+        if (existing == null) {
+            themeRepository.save(incoming);
+            return;
+        }
+        existing.setDisplayName(incoming.getDisplayName());
+        existing.setDescription(incoming.getDescription());
+        existing.setTier(incoming.getTier());
+        existing.setPriceKrw(incoming.getPriceKrw());
+        existing.setWoodColor(incoming.getWoodColor());
+        existing.setShadowColor(incoming.getShadowColor());
+        existing.setWallColor(incoming.getWallColor());
+        existing.setFrameColor(incoming.getFrameColor());
+        existing.setSortOrder(incoming.getSortOrder());
     }
 
     private static BookshelfTheme walnut() {

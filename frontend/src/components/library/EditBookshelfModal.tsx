@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Button, Modal, TextInput } from '../ui'
 import { deleteBookshelf, updateBookshelf, type Bookshelf, type BookshelfZone } from '../../api/library'
+import { extractApiErrorMessage } from '../../api/client'
 
 interface Props {
   open: boolean
@@ -22,6 +23,7 @@ export function EditBookshelfModal({ open, bookshelf, onClose, onChanged }: Prop
       setZone(bookshelf.zone)
       setError(null)
       setConfirmingDelete(false)
+      setSubmitting(false) // guard against leftover state after a previous delete/save
     }
   }, [bookshelf])
 
@@ -42,7 +44,7 @@ export function EditBookshelfModal({ open, bookshelf, onClose, onChanged }: Prop
       onChanged()
       onClose()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '저장 실패')
+      setError(extractApiErrorMessage(err, '저장 실패'))
     } finally {
       setSubmitting(false)
     }
@@ -55,7 +57,8 @@ export function EditBookshelfModal({ open, bookshelf, onClose, onChanged }: Prop
       onChanged()
       onClose()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '삭제 실패')
+      setError(extractApiErrorMessage(err, '삭제 실패'))
+    } finally {
       setSubmitting(false)
     }
   }

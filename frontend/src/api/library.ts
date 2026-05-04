@@ -26,16 +26,34 @@ export interface Bookshelf {
   books: Book[]
 }
 
+/** Hard cap on bookshelves per library. Mirrors Library.MAX_BOOKSHELVES on the backend. */
+export const MAX_BOOKSHELVES_PER_LIBRARY = 8
+
+/** Hard cap on libraries per user. Mirrors User.MAX_LIBRARIES on the backend. */
+export const MAX_LIBRARIES_PER_USER = 3
+
 export interface Library {
   id: number
+  slug: string
   title: string
   paletteName: string
+  floorPaletteName: string
   welcomeMessage?: string
   entranceMood: EntranceMood
   isPublic: boolean
   ownerUsername: string
   ownerDisplayName: string
   bookshelves: Bookshelf[]
+}
+
+export interface LibrarySummary {
+  id: number
+  slug: string
+  title: string
+  sortOrder: number
+  isPublic: boolean
+  isCurrent: boolean
+  bookshelfCount: number
 }
 
 // ─── Library ────────────────────────────────────────────
@@ -45,9 +63,53 @@ export async function fetchMyLibrary(): Promise<Library> {
   return data
 }
 
+/**
+ * Fetch a public library. If `slug` is provided, fetches that specific library;
+ * otherwise returns the user's first public library (legacy short URL).
+ * 404 if not public or doesn't exist.
+ */
+export async function fetchPublicLibrary(username: string, slug?: string): Promise<Library> {
+  const path = slug
+    ? `/u/${encodeURIComponent(username)}/${encodeURIComponent(slug)}/library`
+    : `/u/${encodeURIComponent(username)}/library`
+  const { data } = await apiClient.get<Library>(path)
+  return data
+}
+
+// ─── Multi-library management ───────────────────────────
+
+export async function fetchMyLibraries(): Promise<LibrarySummary[]> {
+  const { data } = await apiClient.get<LibrarySummary[]>('/libraries')
+  return data
+}
+
+export interface CreateLibraryPayload {
+  title: string
+  slug?: string
+}
+
+export async function createLibrary(payload: CreateLibraryPayload): Promise<Library> {
+  const { data } = await apiClient.post<Library>('/libraries', payload)
+  return data
+}
+
+export async function switchCurrentLibrary(libraryId: number): Promise<Library> {
+  const { data } = await apiClient.post<Library>(`/libraries/${libraryId}/switch`)
+  return data
+}
+
+export async function updateLibraryById(
+  libraryId: number,
+  payload: UpdateLibraryPayload,
+): Promise<Library> {
+  const { data } = await apiClient.patch<Library>(`/libraries/${libraryId}`, payload)
+  return data
+}
+
 export interface UpdateLibraryPayload {
   title?: string
   paletteName?: string
+  floorPaletteName?: string
   welcomeMessage?: string
   entranceMood?: EntranceMood
   isPublic?: boolean

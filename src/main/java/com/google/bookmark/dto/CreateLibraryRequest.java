@@ -1,0 +1,13 @@
+package com.google.bookmark.dto;
+
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
+
+public record CreateLibraryRequest(
+    @NotBlank @Size(max = 128) String title,
+    /** Optional. If absent, server derives from title. URL-safe lowercase. */
+    @Size(max = 64)
+    @Pattern(regexp = "^[a-z0-9][a-z0-9-]*$", message = "slug must be lowercase letters, digits, or '-'")
+    String slug
+) {}

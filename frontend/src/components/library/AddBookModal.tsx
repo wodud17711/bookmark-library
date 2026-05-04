@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Button, Modal, TextInput } from '../ui'
 import { createBook } from '../../api/library'
+import { extractApiErrorMessage } from '../../api/client'
 
 interface Props {
   open: boolean
@@ -50,8 +51,7 @@ export function AddBookModal({ open, bookshelfId, bookshelfTitle, onClose, onCre
       onCreated()
       onClose()
     } catch (err) {
-      const msg = err instanceof Error ? err.message : '책 추가에 실패했습니다.'
-      setError(msg)
+      setError(extractApiErrorMessage(err, '책 추가에 실패했습니다.'))
     } finally {
       setSubmitting(false)
     }

@@ -1,6 +1,184 @@
 # HANDOFF
 
-## [2026-04-30] 최근 작업 요약
+## [2026-05-03] 두 번째 큰 작업 — 다중 도서관 + 검색 + 평면도 폴리시
+
+전 커밋 이후 진행한 큰 작업의 묶음. v1.0 거의 마무리 단계.
+
+### 오늘 한 일 (큰 묶음 단위)
+
+#### A. 도서관 설정 패널 (C-3)
+- [components/library/LibrarySettingsModal.tsx](frontend/src/components/library/LibrarySettingsModal.tsx) — 도서관 이름/환영 메시지/입구 분위기/책장 테마/마루 테마/공개 토글
+- 헤더에 ⚙ IconButton, `PATCH /api/library` 호출
+- 새 [components/ui/Textarea.tsx](frontend/src/components/ui/Textarea.tsx) — 라벨/문자 카운트 슬롯
+
+#### B. 공유 URL `/u/{username}/{slug}` (C-4)
+- [PublicLibraryController.java](src/main/java/com/google/bookmark/controller/PublicLibraryController.java) — `GET /api/u/{username}/{slug}/library` (slug 명시) + 기존 short URL `/api/u/{username}/library` (첫 공개 도서관)
+- [LibraryService.getPublicLibrary](src/main/java/com/google/bookmark/service/LibraryService.java) — PRIVATE 책장 백엔드에서 필터, isPublic=false면 404
+- [SecurityConfig](src/main/java/com/google/bookmark/config/SecurityConfig.java) — `/api/u/**` permitAll
+- [pages/PublicLibraryPage.tsx](frontend/src/pages/PublicLibraryPage.tsx) — read-only 도서관 뷰, 환영 메시지 배너, 베스트셀러 섹션, "내 도서관 만들기" CTA, **Pixi 평면도 readonly 모드 통합**
+- 헤더 ShareButton — clipboard 복사 + 비공개 시 안내
+
+#### C. Pixi.js 평면도 시각화 (C-2 시리즈, 가장 큰 변화)
+- 새 파일 [components/library/PixiLibraryScene.tsx](frontend/src/components/library/PixiLibraryScene.tsx) (대규모) + [utils/shelfThemes.ts](frontend/src/utils/shelfThemes.ts) 색 상수
+- Pixi v8 setup with autoDensity, ResizeObserver로 반응형
+- 2 useEffect 구조: setup-once + redraw-on-data-change (appRef로 인스턴스 보존)
+- **5개 영역 모두 그림**: 입구 / 베스트셀러 페데스탈 / 좌우 벽 책장 / 프라이빗 문 / 창고 chip
+- **타이쿤 폴리시 패스**: 둥근 모서리, 드롭 섀도, 나무결, 마룻바닥 plank 패턴, 입구 광원 + 바닥 spill (entranceMood 색에 따라 변화), 베스트셀러 페데스탈에 다리/러그/Graphics 별
+- 입구 spill: 직선 V cone → soft elliptical pool (자연스러움)
+- 책장 클릭 → 아래 ShelfCard로 부드러운 스크롤 + walnut ring 강조
+- `readonly` prop — 공유 뷰에서 프라이빗 문/창고 chip 숨김 + 입구 클릭 무력화
+
+#### D. 마루/책장 테마 분리
+- 새 entity [FloorTheme.java](src/main/java/com/google/bookmark/domain/FloorTheme.java) — primaryColor, shadowColor, tier, priceKrw
+- 시드 3개: `cream-pine` (기본), `golden-oak`, `dark-wenge` ("다크 웬지" 한국어)
+- `Library.floorPaletteName` (nullable, default "cream-pine")
+- [api/floorThemes.ts](frontend/src/api/floorThemes.ts) + LibrarySettingsModal에 마루 picker section
+- **시더 패턴 변경**: `seedDefaultsIfMissing` → `upsert` (BookshelfThemeService도 동일) — displayName/description 변경이 다음 시작 시 자동 반영, `data/` 폴더 삭제 불필요
+
+#### E. 다중 도서관 + 한도
+- `User → Library` 1:1 → 1:N (`@OneToMany`, `@OneToOne` 제거)
+- `User.currentLibraryId` 추가 + `MAX_LIBRARIES = 3`
+- `Library`에 `slug` (URL 친화), `sortOrder`, `MAX_BOOKSHELVES = 8`, `(user_id, slug) UNIQUE`
+- 새 엔드포인트: `GET /api/libraries`, `POST /api/libraries`, `POST /api/libraries/{id}/switch`, `PATCH /api/libraries/{id}`
+- `GET /api/library`, `PATCH /api/library` — 현재 도서관 단축 (호환 유지)
+- [LibraryService.createLibrary](src/main/java/com/google/bookmark/service/LibraryService.java) — slug 자동 생성 (slugify) + cap 검증 + 자동 current 전환
+- [BookshelfService.create](src/main/java/com/google/bookmark/service/BookshelfService.java) — `Library.MAX_BOOKSHELVES` cap, currentLibraryId 우선
+- 새 [LibrarySwitcher.tsx](frontend/src/components/library/LibrarySwitcher.tsx) — 헤더 dropdown, 책장 N/8 표시, "+ 새 도서관"
+- 새 [CreateLibraryModal.tsx](frontend/src/components/library/CreateLibraryModal.tsx) — 자동 slug, cap 도달 시 폼 대신 안내
+- LibraryPage 책장 섹션: 8개 도달 시 추가 버튼 disabled + "새 도서관 만들기 →" 핫링크
+
+#### F. 8-cap을 import에도 적용 + 도서관 선택
+- [BookmarkImportService.importToShelves](src/main/java/com/google/bookmark/service/BookmarkImportService.java) — `resolveTargetLibrary(userId, libraryId)`로 currentLibraryId 또는 명시 libraryId 사용 (이전 첫 도서관 버그 수정), 한도 초과 폴더는 자동으로 창고로 + warning
+- `ImportRequest.libraryId` 필드 추가 (optional)
+- ImportBookmarksModal **재구조**: 모달 열 때 fetchMyLibraries → dropdown 표시 (현재 default), 선택 변경 시 cap warning 즉시 재계산
+
+#### G. 검색기능
+- **창고 검색**: [StorageDrawer.tsx](frontend/src/components/library/StorageDrawer.tsx) 상단에 search input, client-side filter (제목/URL/사이트명/originalFolder), "전체" 체크박스가 필터된 책 기준
+- **도서관 사서 (Librarian)**: 새 backend
+  - [BookRepository.searchByUserId](src/main/java/com/google/bookmark/repository/BookRepository.java) + [StoredBookRepository.searchByUserId](src/main/java/com/google/bookmark/repository/StoredBookRepository.java) JPQL LIKE
+  - [SearchResponse + BookHit + StoredHit](src/main/java/com/google/bookmark/dto/SearchResponse.java) — 위치 정보 포함 (libraryId/Slug/Title, bookshelfId/Title/Zone, isCurrentLibrary)
+  - [SearchService](src/main/java/com/google/bookmark/service/SearchService.java) + [SearchController](src/main/java/com/google/bookmark/controller/SearchController.java) `GET /api/search?q=`
+- 프론트엔드: [api/search.ts](frontend/src/api/search.ts), 새 [LibrarianModal.tsx](frontend/src/components/library/LibrarianModal.tsx) — 헤더 `📖 사서` 버튼, 250ms 디바운스, 도서관별 그룹 + 창고 섹션, 같은 도서관 클릭 → 스크롤, 다른 도서관 클릭 → switchCurrentLibrary + pendingScroll → refetch 후 자동 스크롤
+- LibraryPage `pendingScrollShelfId` 상태 + useEffect로 library 변경 감지 후 스크롤
+
+#### H. 사람 실루엣 게이미피케이션
+- [PixiLibraryScene.drawSilhouettes](frontend/src/components/library/PixiLibraryScene.tsx) — 15권당 1명, 최대 10명
+- 10개 슬롯 (페데스탈 주변 안전 구역), library.id seed로 deterministic jitter
+- 머리 + 몸통 + 다리 + 발 밑 그림자, 좌우 방향 변주, 색은 마룻바닥 luma 기준 자동 (어두운 잉크/밝은 잉크)
+
+#### I. UX 마이크로 픽스
+- 책장 삭제 후 모달 버튼 비활성화 버그 — `handleDelete`/`handleMoveToStorage`에 `try/finally` 적용 + useEffect에 `setSubmitting(false)` 가드
+- 모든 form에 Enter 키 submit (form id + form="..." 패턴)
+- 창고: 행 전체 클릭으로 체크박스 토글 (`<label>`로 감쌈), 체크박스 5×5 (14→20px), **bulk delete 버튼**
+- 베스트셀러 페데스탈: ✨ 이모지 → Graphics로 그린 골드 5각 별 + 하이라이트
+- 입구 spill: 직선 V cone → soft elliptical pool
+- 평면도 책장 간격 16 → 32px (라벨 가려짐 해결)
+- 화분 데코 제거 (사용자 요청)
+- 창고 chip 위치 — 책장과 충돌 안 하게 우상단으로 이동 (책장 영역 침범 X)
+- 다크 "웬게" → "웬지" 오타 수정 + 시더 upsert로 자동 반영
+
+#### J. API 에러 메시지 정책
+- 새 [GlobalExceptionHandler.java](src/main/java/com/google/bookmark/config/GlobalExceptionHandler.java) (@RestControllerAdvice) — 모든 ResponseStatusException을 `{ status, error, message, timestamp }` JSON으로 변환 (Spring `include-message` 설정에 의존 X)
+- application.yml에 `server.error.include-message: always` 도 함께 (이중 안전망)
+- 새 [api/client.ts → extractApiErrorMessage(err, fallback)](frontend/src/api/client.ts) — axios 에러에서 `response.data.message` 우선 추출, 네트워크 오류 메시지, fallback
+- 9개 파일의 모든 `err.message` 패턴을 헬퍼로 일괄 대체
+
+### 해결한 버그 (이번 세션)
+1. **창고 → 책장 이동 시 "Request failed with status code 409"**: 백엔드는 한국어 메시지 반환했지만 Spring이 message 필드 숨김 → @RestControllerAdvice + 헬퍼로 정확히 노출
+2. **import이 항상 첫 도서관에만**: BookmarkImportService가 `findFirstByUserId...`만 봄 → currentLibraryId 우선 + libraryId 명시 가능
+3. **책장 삭제 후 다음 모달 버튼 비활성화**: success 시 `setSubmitting(false)` 누락 → finally 패턴
+4. **사용자가 본 V자 부자연스러운 빛 spill** → soft elliptical pool로 교체
+5. **창고 박스가 첫 우측 책장과 좌표 충돌** → 우상단 chip으로 이동
+6. **공유 URL이 list만 보여줌** → PixiLibraryScene readonly 모드 추가
+7. **AntPathRequestMatcher 컴파일 에러** (Spring Security 7) → RequestMatcher 람다
+8. **다크 웬게 → 다크 웬지** 오타 + seed가 if-not-exists여서 안 갱신 → upsert 패턴
+
+### 현재 상태
+
+#### 동작 확인됨 ✅
+- OAuth 로그인 + 자동 사용자/도서관/책장 생성
+- 책장 / 책 CRUD (create/edit/zone 변경/삭제)
+- 책장 dropdown으로 책 이동, 창고 이동
+- 북마크 HTML import (자동 책장 / 창고 모두), 도서관 선택 가능, 8 cap 자동 폴백
+- 창고: 폴더 그룹 + 일괄 이동 + bulk 삭제 + 검색
+- **다중 도서관**: 생성 / 전환 / 8개 책장 cap / 3개 도서관 cap
+- 도서관 설정 (이름/환영 메시지/입구 분위기/책장 테마/마루 테마/공개)
+- 공유 URL `/u/{username}/{slug}` — Pixi 평면도 read-only로 풀 시각화
+- **검색**: 창고 + 도서관 사서 (모든 도서관/창고 통합)
+- Pixi 평면도: 5영역 + 폴리시 + 사람 실루엣 (15권당 1명, max 10)
+- API 에러 한국어 메시지 일관 노출
+
+#### 미완성 / v1.0 출시 전 필수 ❌
+- **OG 이미지 자동 생성** (마케팅 핵심 — 트위터/디스코드 미리보기)
+- **모바일 평면도 회전** — 데스크톱 16:9 평면도를 모바일 세로 9:16에 90° 회전 적용 (Pixi 좌표계로, CSS rotate 아님)
+- 운영 DB로 PostgreSQL 전환 (현재 H2 file mode)
+- 결제/유료 테마 (v2)
+
+### 다음에 이어서 할 일
+
+1. **C-2.8 모바일 평면도 회전** — 가로 폼팩터(16:9)를 세로(9:16)로 90° 회전. PixiLibraryScene 내부에서 viewport.h > viewport.w 감지 후 좌표 회전. CSS transform 사용 X.
+2. **OG 이미지 자동 생성** — 공유 URL이 트위터/디스코드에서 미리보기로 보이도록. Pixi 씬을 서버에서 PNG 렌더링 또는 Puppeteer/Playwright headless. Spring Boot 4 환경에서 어떻게 띄울지 검토 필요.
+3. (선택) PostgreSQL 전환 + 배포 (Vercel + Fly.io 또는 유사 조합)
+
+### 미해결 이슈 / 막힌 지점
+
+- **schema migration 부담**: ddl-auto=update가 unique 제약 + NOT NULL 추가 컬럼에 약함. 다중 도서관 도입 시 `data/` 폴더 통째 삭제 필요했음. 같은 패턴 또 발생 시 Flyway/Liquibase 도입 검토.
+- **Pixi 씬 모바일**: 책 라벨/캡 텍스트가 작아서 터치 타겟이 없음. 회전 + 책장 자체 줌인 필요.
+- **확인 필요**: 검색 결과 50개 한도가 적절한지 (사용자 데이터 늘어나면 조정).
+
+### 컨텍스트 / 주의사항
+
+#### 실행 방법 (변경 없음)
+1. IntelliJ Run Configuration: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` 환경변수 (직접 복사)
+2. Frontend: `cd frontend && npm install && npm run dev` → http://localhost:5173/login
+3. DB 기본 H2 file (`./data/bookmark.mv.db`). PG 쓰려면 `--spring.profiles.active=postgres`
+
+#### 데이터 초기화 (스키마 충돌 시)
+1. Spring Boot 중지
+2. `data/` 폴더 삭제
+3. 재시작 → 스키마 재생성, 시드 자동 실행, 다음 로그인 시 User+Library 새로 생성
+
+#### 백엔드 구조 변화 요약 (이번 세션)
+- 새 엔티티: `FloorTheme`
+- 변경: `User` (1:N libraries + currentLibraryId + MAX_LIBRARIES 상수), `Library` (slug + sortOrder + MAX_BOOKSHELVES 상수 + ManyToOne user, floorPaletteName)
+- 새 컨트롤러/서비스: `SearchController/Service`, `FloorThemeService`, `GlobalExceptionHandler`, `PublicLibraryController` 확장
+- 신규 DTOs: `LibrarySummary`, `CreateLibraryRequest`, `FloorThemeResponse`, `SearchResponse`(BookHit/StoredHit)
+
+#### 프론트엔드 새/수정 파일 (이번 세션)
+- 새 컴포넌트: `LibrarySettingsModal`, `LibrarySwitcher`, `CreateLibraryModal`, `LibrarianModal`, `PixiLibraryScene`, `PublicLibraryPage` (대폭)
+- 새 ui: `Textarea`
+- 새 api: `floorThemes.ts`, `search.ts`
+- 새 utils: `shelfThemes.ts` (palette 상수)
+- 헬퍼: `extractApiErrorMessage`
+- 큰 수정: `LibraryPage` (헤더/스위처/섹션/refs/handlers), `StorageDrawer` (검색/bulk delete/UX), `ImportBookmarksModal` (도서관 picker/cap warning), `EditBookModal` (책장 dropdown/창고 이동/finally 패턴)
+
+#### 메모리 (Claude memory file)
+**중요**: Claude Code의 메모리는 PC별 로컬에 저장됩니다 (`~/.claude/projects/<key>/memory/`). 다른 PC에서 새 Claude 세션을 시작하면 비어있는 메모리로 시작합니다.
+
+이 프로젝트는 메모리의 **export 사본**을 [`.claude/memory/`](.claude/memory/) 디렉토리에 함께 commit합니다:
+- [`.claude/memory/MEMORY.md`](.claude/memory/MEMORY.md)
+- [`.claude/memory/project_vision.md`](.claude/memory/project_vision.md) — 핵심 결정사항 (정원 한도, 다중 도서관, 검색, 사서, 에러 정책, 마루/책장 테마, 평면도 디자인 등 모두)
+
+##### 다른 PC에서 Claude 메모리 부트스트랩
+1. repo clone
+2. Claude Code 첫 메시지로:
+```
+이 프로젝트는 다른 PC에서 작업하다 넘어온 거야. 다음 순서로 컨텍스트를 잡아줘:
+1. HANDOFF.md를 읽어서 지금까지의 작업 내역과 다음 할 일 파악
+2. .claude/memory/*.md를 ~/.claude/projects/<이 프로젝트의 키>/memory/로 복사 (없으면 만들고, 있으면 머지)
+3. 환경 점검: build.gradle, frontend/package.json 확인, .env 없으면 .env.example 보고 안내
+4. "준비 완료, 다음에 할 일은 [HANDOFF.md 기준 요약]" 보고하고 대기
+```
+
+#### Tailwind v4 + Pixi v8 기억해둘 것
+- CSS 변수: `bg-(--color-walnut-500)` 형태로 사용
+- `@theme` 블록은 `frontend/src/index.css`에 정의
+- Pixi v8: `Application.init()` 비동기, `Graphics`는 `roundRect/rect/poly/circle/ellipse/.fill/.stroke` 체인
+- 둘 다 매우 신버전이라 구버전 자료 검색 시 주의
+
+---
+
+## [2026-04-30] 첫 세션 — OAuth + 풀스택 부트스트랩 + CRUD + 디자인 시스템
 
 오늘 하루 종일 작업: OAuth 디버깅 → 프로젝트 비전 설계 → 풀스택 부트스트랩 → 데이터 모델 → CRUD UI → 디자인 시스템 → 북마크 import + 창고 시스템.
 

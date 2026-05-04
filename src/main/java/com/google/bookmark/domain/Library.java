@@ -9,14 +9,16 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.Lob;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
-import jakarta.persistence.OneToOne;
 import jakarta.persistence.OrderBy;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -26,19 +28,39 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Entity
-@Table(name = "libraries")
+@Table(
+    name = "libraries",
+    uniqueConstraints = @UniqueConstraint(
+        name = "uk_libraries_user_slug",
+        columnNames = { "user_id", "slug" }
+    ),
+    indexes = @Index(name = "idx_libraries_user", columnList = "user_id")
+)
 @Getter
 @Setter
 @NoArgsConstructor
 public class Library {
 
+    /** Per-library bookshelf cap. Floor plan looks cleanest at 8 (4 per wall). */
+    public static final int MAX_BOOKSHELVES = 8;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @OneToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id", nullable = false, unique = true)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", nullable = false)
     private User user;
+
+    /**
+     * URL-safe identifier, unique per user. Used in public share URLs:
+     * {@code /u/{username}/{slug}}.
+     */
+    @Column(nullable = false, length = 64)
+    private String slug = "main";
+
+    @Column(name = "sort_order", nullable = false)
+    private int sortOrder = 0;
 
     @Column(nullable = false, length = 128)
     private String title;
@@ -48,6 +70,13 @@ public class Library {
 
     @Column(name = "palette_name", nullable = false, length = 64)
     private String paletteName = "warm-walnut";
+
+    /**
+     * Floor palette id. Nullable for backwards compatibility with rows that
+     * existed before this column was added; service treats null as default.
+     */
+    @Column(name = "floor_palette_name", length = 64)
+    private String floorPaletteName = "cream-pine";
 
     /** Free-form welcome message shown at the entrance. Visible to public visitors. */
     @Lob

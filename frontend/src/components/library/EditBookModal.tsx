@@ -7,6 +7,7 @@ import {
   type Book,
   type Bookshelf,
 } from '../../api/library'
+import { extractApiErrorMessage } from '../../api/client'
 
 interface Props {
   open: boolean
@@ -45,6 +46,7 @@ export function EditBookModal({
       setError(null)
       setConfirmingDelete(false)
       setConfirmingStorage(false)
+      setSubmitting(false) // guard against leftover state after a previous action
     }
   }, [book, currentShelfId])
 
@@ -76,7 +78,7 @@ export function EditBookModal({
       onChanged()
       onClose()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '저장 실패')
+      setError(extractApiErrorMessage(err, '저장 실패'))
     } finally {
       setSubmitting(false)
     }
@@ -89,7 +91,8 @@ export function EditBookModal({
       onChanged()
       onClose()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '삭제 실패')
+      setError(extractApiErrorMessage(err, '삭제 실패'))
+    } finally {
       setSubmitting(false)
     }
   }
@@ -101,7 +104,8 @@ export function EditBookModal({
       onChanged()
       onClose()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '창고 이동 실패')
+      setError(extractApiErrorMessage(err, '창고 이동 실패'))
+    } finally {
       setSubmitting(false)
     }
   }

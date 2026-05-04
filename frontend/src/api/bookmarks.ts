@@ -11,6 +11,8 @@ export interface ImportEntry {
 
 export interface ImportRequest {
   mode: ImportMode
+  /** Target library for SHELVES mode. Omit to import into current library. */
+  libraryId?: number
   entries: ImportEntry[]
 }
 

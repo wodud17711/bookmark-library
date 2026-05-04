@@ -6,8 +6,10 @@ import com.google.bookmark.domain.Library;
 import com.google.bookmark.dto.BookshelfResponse;
 import com.google.bookmark.dto.CreateBookshelfRequest;
 import com.google.bookmark.dto.UpdateBookshelfRequest;
+import com.google.bookmark.domain.User;
 import com.google.bookmark.repository.BookshelfRepository;
 import com.google.bookmark.repository.LibraryRepository;
+import com.google.bookmark.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -24,10 +26,44 @@ public class BookshelfService {
 
     private final BookshelfRepository bookshelfRepository;
     private final LibraryRepository libraryRepository;
+    private final UserRepository userRepository;
 
+    /** Add to user's currently selected library (uses first if none selected). */
     public BookshelfResponse create(Long userId, CreateBookshelfRequest req) {
-        Library library = libraryRepository.findByUserId(userId)
+        Library library = resolveCurrentLibrary(userId);
+        return createIn(library, req);
+    }
+
+    /** Add to a specific library, with ownership check. */
+    public BookshelfResponse createInLibrary(Long userId, Long libraryId, CreateBookshelfRequest req) {
+        Library library = libraryRepository.findByIdAndUserId(libraryId, userId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Library not found"));
+        return createIn(library, req);
+    }
+
+    private Library resolveCurrentLibrary(Long userId) {
+        User user = userRepository.findById(userId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+        Long currentId = user.getCurrentLibraryId();
+        if (currentId != null) {
+            Library lib = libraryRepository.findByIdAndUserId(currentId, userId).orElse(null);
+            if (lib != null) return lib;
+        }
+        return libraryRepository.findFirstByUserIdOrderBySortOrderAscIdAsc(userId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Library not found"));
+    }
+
+    private BookshelfResponse createIn(Library library, CreateBookshelfRequest req) {
+        if (library.getBookshelves().size() >= Library.MAX_BOOKSHELVES) {
+            throw new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                String.format(
+                    "한 도서관에 책장을 %d개까지만 둘 수 있어요. " +
+                    "새 도서관을 만들거나 다른 책장을 정리해주세요.",
+                    Library.MAX_BOOKSHELVES
+                )
+            );
+        }
 
         Bookshelf shelf = new Bookshelf();
         shelf.setTitle(req.title().trim());

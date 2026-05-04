@@ -7,7 +7,8 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.OneToOne;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.OrderBy;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
@@ -16,6 +17,8 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "users")
@@ -23,6 +26,9 @@ import java.time.Instant;
 @Setter
 @NoArgsConstructor
 public class User {
+
+    /** Maximum number of libraries one user can own. Hard cap, no plans yet. */
+    public static final int MAX_LIBRARIES = 3;
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -43,8 +49,16 @@ public class User {
     @Column(nullable = false, unique = true, length = 64)
     private String username;
 
-    @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
-    private Library library;
+    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @OrderBy("sortOrder ASC, id ASC")
+    private List<Library> libraries = new ArrayList<>();
+
+    /**
+     * Which library is currently active for the user. Null falls back to the
+     * first library on access. Set when user creates or switches libraries.
+     */
+    @Column(name = "current_library_id")
+    private Long currentLibraryId;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -62,5 +76,10 @@ public class User {
     @PreUpdate
     void onUpdate() {
         this.updatedAt = Instant.now();
+    }
+
+    public void addLibrary(Library lib) {
+        lib.setUser(this);
+        this.libraries.add(lib);
     }
 }

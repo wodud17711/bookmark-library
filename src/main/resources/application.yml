@@ -26,6 +26,13 @@ spring:
 
 server:
   port: 8081
+  # Surface ResponseStatusException reason text in the JSON error body so the
+  # frontend can display "선택한 책장이 가득 찼습니다." instead of an opaque
+  # "Request failed with status code 409". Kept on always — our backend only
+  # throws explicit, user-facing messages (no leaking of stack info).
+  error:
+    include-message: always
+    include-binding-errors: always
 
 app:
   frontend:

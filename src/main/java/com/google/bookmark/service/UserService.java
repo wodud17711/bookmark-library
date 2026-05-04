@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class UserService {
 
     private static final String USERNAME_FALLBACK_PREFIX = "reader";
+    private static final String DEFAULT_LIBRARY_SLUG = "main";
 
     private final UserRepository userRepository;
 
@@ -40,14 +41,18 @@ public class UserService {
         user.setUsername(generateUniqueUsername(email));
 
         Library library = new Library();
-        library.setUser(user);
         library.setTitle(displayName + "의 도서관");
-        user.setLibrary(library);
+        library.setSlug(DEFAULT_LIBRARY_SLUG);
+        library.setSortOrder(0);
+        user.addLibrary(library);
 
         library.addBookshelf(makeShelf("내 책장", BookshelfZone.PUBLIC, 0));
         library.addBookshelf(makeShelf("프라이빗 룸", BookshelfZone.PRIVATE, 1));
 
-        return userRepository.save(user);
+        // currentLibraryId is set after save (id assigned by DB)
+        User saved = userRepository.save(user);
+        saved.setCurrentLibraryId(saved.getLibraries().get(0).getId());
+        return saved;
     }
 
     private Bookshelf makeShelf(String title, BookshelfZone zone, int position) {

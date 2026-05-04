@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { fetchMyLibrary, type Library } from '../api/library'
+import { extractApiErrorMessage } from '../api/client'
 
 export interface UseLibraryResult {
   library: Library | null
@@ -19,7 +20,7 @@ export function useLibrary(): UseLibraryResult {
       const data = await fetchMyLibrary()
       setLibrary(data)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Unknown error')
+      setError(extractApiErrorMessage(e, '도서관을 불러오지 못했습니다'))
     } finally {
       setLoading(false)
     }

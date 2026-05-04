@@ -7,6 +7,7 @@ import {
   type StoredBook,
 } from '../../api/storage'
 import type { Bookshelf } from '../../api/library'
+import { extractApiErrorMessage } from '../../api/client'
 
 interface Props {
   open: boolean
@@ -21,6 +22,7 @@ export function StorageDrawer({ open, shelves, onClose, onChanged }: Props) {
   const [targetShelfId, setTargetShelfId] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
 
   useEffect(() => {
     if (!open) return
@@ -31,24 +33,48 @@ export function StorageDrawer({ open, shelves, onClose, onChanged }: Props) {
         setBooks(data)
         setSelected(new Set())
       })
-      .catch((e) => setError(e instanceof Error ? e.message : '불러오기 실패'))
+      .catch((e) => setError(extractApiErrorMessage(e, '불러오기 실패')))
       .finally(() => setLoading(false))
   }, [open])
 
+  // Filtered list — search applies to title, URL, and originalFolder.
+  const filteredBooks = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return books
+    return books.filter((b) => {
+      return (
+        b.title.toLowerCase().includes(q) ||
+        b.url.toLowerCase().includes(q) ||
+        (b.originalFolder ?? '').toLowerCase().includes(q) ||
+        (b.siteName ?? '').toLowerCase().includes(q)
+      )
+    })
+  }, [books, search])
+
   const groupedByFolder = useMemo(() => {
     const map = new Map<string, StoredBook[]>()
-    for (const b of books) {
+    for (const b of filteredBooks) {
       const key = b.originalFolder || '(폴더 없음)'
       if (!map.has(key)) map.set(key, [])
       map.get(key)!.push(b)
     }
     return [...map.entries()].sort((a, b) => b[1].length - a[1].length)
-  }, [books])
+  }, [filteredBooks])
 
-  const allSelected = books.length > 0 && selected.size === books.length
+  // "전체" 체크박스는 현재 화면에 보이는(필터된) 책들 기준으로 동작
+  const allSelected = filteredBooks.length > 0 && filteredBooks.every((b) => selected.has(b.id))
 
   const toggleAll = () => {
-    setSelected(allSelected ? new Set() : new Set(books.map((b) => b.id)))
+    if (allSelected) {
+      // Uncheck all currently visible
+      const next = new Set(selected)
+      filteredBooks.forEach((b) => next.delete(b.id))
+      setSelected(next)
+    } else {
+      const next = new Set(selected)
+      filteredBooks.forEach((b) => next.add(b.id))
+      setSelected(next)
+    }
   }
   const toggleOne = (id: number) => {
     const next = new Set(selected)
@@ -81,7 +107,7 @@ export function StorageDrawer({ open, shelves, onClose, onChanged }: Props) {
         setError(`${moved}권만 옮겼습니다.`)
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : '옮기기 실패')
+      setError(extractApiErrorMessage(e, '옮기기 실패'))
     }
   }
 
@@ -96,7 +122,25 @@ export function StorageDrawer({ open, shelves, onClose, onChanged }: Props) {
       })
       onChanged()
     } catch (e) {
-      setError(e instanceof Error ? e.message : '삭제 실패')
+      setError(extractApiErrorMessage(e, '삭제 실패'))
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    if (selected.size === 0) return
+    const ok = window.confirm(
+      `선택한 ${selected.size}권을 창고에서 삭제할까요?\n되돌릴 수 없습니다.`,
+    )
+    if (!ok) return
+    setError(null)
+    const ids = [...selected]
+    try {
+      await Promise.all(ids.map((id) => deleteStoredBook(id)))
+      setBooks((prev) => prev.filter((b) => !selected.has(b.id)))
+      setSelected(new Set())
+      onChanged()
+    } catch (e) {
+      setError(extractApiErrorMessage(e, '일부 삭제 실패 — 새로고침 후 다시 시도해주세요.'))
     }
   }
 
@@ -111,16 +155,45 @@ export function StorageDrawer({ open, shelves, onClose, onChanged }: Props) {
           </p>
         ) : (
           <>
+            <div className="relative">
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="책 제목, URL, 폴더로 검색…"
+                className="w-full pl-9 pr-9 py-2.5 text-sm bg-(--color-surface-raised)
+                           border border-(--color-line) rounded-(--radius-sm)
+                           focus:outline-none focus:border-(--color-walnut-500) focus:ring-2 focus:ring-(--color-walnut-300)/40"
+              />
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-(--color-ink-muted) text-sm">🔍</span>
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch('')}
+                  aria-label="검색 지우기"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-(--color-ink-muted) hover:text-(--color-ink) px-1 text-xs"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+
+            {filteredBooks.length === 0 && search && (
+              <p className="text-sm text-(--color-ink-muted) text-center py-4">
+                "{search}" 와(과) 일치하는 책이 없습니다.
+              </p>
+            )}
+
             <div className="flex items-center gap-3 flex-wrap p-3 bg-(--color-surface-sunken) rounded-(--radius-sm)">
-              <label className="flex items-center gap-2 text-sm">
+              <label className="flex items-center gap-2 text-sm cursor-pointer select-none px-1 py-1 rounded hover:bg-(--color-surface-raised)/50">
                 <input
                   type="checkbox"
                   checked={allSelected}
                   onChange={toggleAll}
-                  className="w-4 h-4 accent-(--color-walnut-500)"
+                  className="w-5 h-5 accent-(--color-walnut-500) cursor-pointer"
                 />
                 <span className="text-(--color-ink)">
-                  전체 ({books.length}권)
+                  {search ? `검색 결과 (${filteredBooks.length}권)` : `전체 (${books.length}권)`}
                 </span>
               </label>
               {selected.size > 0 && (
@@ -129,6 +202,14 @@ export function StorageDrawer({ open, shelves, onClose, onChanged }: Props) {
                 </span>
               )}
               <div className="flex-1" />
+              <Button
+                size="sm"
+                variant="danger"
+                onClick={handleBulkDelete}
+                disabled={selected.size === 0}
+              >
+                {selected.size > 0 ? `${selected.size}권 삭제` : '선택 삭제'}
+              </Button>
               <select
                 value={targetShelfId ?? ''}
                 onChange={(e) => setTargetShelfId(e.target.value ? Number(e.target.value) : null)}
@@ -158,7 +239,7 @@ export function StorageDrawer({ open, shelves, onClose, onChanged }: Props) {
                 const someSelected = groupBooks.some((b) => selected.has(b.id))
                 return (
                   <li key={folder}>
-                    <div className="flex items-center gap-2 mb-1.5">
+                    <label className="flex items-center gap-2 mb-1.5 cursor-pointer select-none px-1 py-1 rounded hover:bg-(--color-surface-sunken)">
                       <input
                         type="checkbox"
                         checked={groupSelected}
@@ -166,35 +247,37 @@ export function StorageDrawer({ open, shelves, onClose, onChanged }: Props) {
                           if (el) el.indeterminate = !groupSelected && someSelected
                         }}
                         onChange={() => toggleGroup(groupBooks)}
-                        className="w-4 h-4 accent-(--color-walnut-500)"
+                        className="w-5 h-5 accent-(--color-walnut-500) cursor-pointer"
                       />
                       <span className="text-xs font-medium text-(--color-ink-muted)">
                         {folder} · {groupBooks.length}권
                       </span>
-                    </div>
+                    </label>
                     <ul className="ml-6 space-y-0.5">
                       {groupBooks.map((b) => (
                         <li
                           key={b.id}
-                          className="group flex items-center gap-2 px-2 py-1.5 rounded-(--radius-xs) hover:bg-(--color-surface-sunken)"
+                          className="group flex items-center gap-1 rounded-(--radius-xs) hover:bg-(--color-surface-sunken)"
                         >
-                          <input
-                            type="checkbox"
-                            checked={selected.has(b.id)}
-                            onChange={() => toggleOne(b.id)}
-                            className="w-3.5 h-3.5 accent-(--color-walnut-500) shrink-0"
-                          />
-                          <span
-                            className="flex-1 min-w-0 text-sm text-(--color-ink) truncate"
+                          <label
+                            className="flex items-center gap-3 flex-1 min-w-0 px-3 py-2 cursor-pointer select-none"
                             title={b.url}
                           >
-                            {b.title}
-                          </span>
+                            <input
+                              type="checkbox"
+                              checked={selected.has(b.id)}
+                              onChange={() => toggleOne(b.id)}
+                              className="w-5 h-5 accent-(--color-walnut-500) shrink-0 cursor-pointer"
+                            />
+                            <span className="flex-1 min-w-0 text-sm text-(--color-ink) truncate">
+                              {b.title}
+                            </span>
+                          </label>
                           <IconButton
                             label="버리기"
                             size="sm"
                             onClick={() => handleDelete(b.id)}
-                            className="opacity-0 group-hover:opacity-100"
+                            className="opacity-0 group-hover:opacity-100 mr-1"
                           >
                             <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                               <path d="M2 3h8M5 5v4M7 5v4M3 3l1 7h4l1-7" stroke="currentColor" strokeWidth="1" />

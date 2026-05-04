@@ -39,7 +39,7 @@ public class BookmarkImportService {
     public ImportSummary importBookmarks(Long userId, ImportRequest request) {
         return switch (request.mode()) {
             case "STORAGE" -> importToStorage(userId, request.entries());
-            case "SHELVES" -> importToShelves(userId, request.entries());
+            case "SHELVES" -> importToShelves(userId, request.libraryId(), request.entries());
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown mode: " + request.mode());
         };
     }
@@ -61,12 +61,11 @@ public class BookmarkImportService {
         return new ImportSummary("STORAGE", 0, 0, entries.size(), List.of());
     }
 
-    private ImportSummary importToShelves(Long userId, List<ImportEntry> entries) {
-        Library library = libraryRepository.findByUserId(userId)
-            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Library not found"));
+    private ImportSummary importToShelves(Long userId, Long libraryId, List<ImportEntry> entries) {
+        Library library = resolveTargetLibrary(userId, libraryId);
+        User user = library.getUser();
 
         // Step 1: assign one shelf name per unique folder path (in order of first appearance).
-        // Two different paths whose leaf names collide get the parent path prepended.
         Map<String, String> pathToShelfName = new LinkedHashMap<>();
         Set<String> usedNames = new HashSet<>();
         for (ImportEntry e : entries) {
@@ -77,7 +76,7 @@ public class BookmarkImportService {
             usedNames.add(name);
         }
 
-        // Step 2: group entries by their resolved shelf name.
+        // Step 2: group entries by their resolved shelf name (preserves first-seen order).
         Map<String, List<ImportEntry>> groups = new LinkedHashMap<>();
         for (ImportEntry e : entries) {
             String key = e.folderPath() == null ? "" : e.folderPath();
@@ -90,19 +89,42 @@ public class BookmarkImportService {
             .mapToInt(Bookshelf::getPosition)
             .max()
             .orElse(-1) + 1;
+        int remainingShelfSlots = Library.MAX_BOOKSHELVES - library.getBookshelves().size();
 
         int shelvesCreated = 0;
         int booksImported = 0;
+        int storedCount = 0;
         List<String> warnings = new ArrayList<>();
 
+        // Iterate groups in first-seen order. For each, plan how many shelves it would consume
+        // (1 + chunks of 30). If it fits in remaining slots, create them. Otherwise, route the
+        // group's books to storage and warn the user.
         for (Map.Entry<String, List<ImportEntry>> group : groups.entrySet()) {
             String name = group.getKey();
             List<ImportEntry> books = group.getValue();
-
-            // Auto-split if a single folder exceeds the per-shelf limit.
-            int chunkIndex = 1;
             int chunks = (int) Math.ceil((double) books.size() / MAX_BOOKS_PER_SHELF);
 
+            if (chunks > remainingShelfSlots) {
+                // Doesn't fit — send this folder's books to storage instead.
+                for (ImportEntry e : books) {
+                    StoredBook sb = new StoredBook();
+                    sb.setUser(user);
+                    sb.setUrl(e.url());
+                    sb.setTitle(e.title());
+                    sb.setSiteName(e.siteName());
+                    sb.setOriginalFolder(e.folderPath());
+                    storedBookRepository.save(sb);
+                    storedCount++;
+                }
+                warnings.add(String.format(
+                    "'%s' 폴더는 책장 한도(도서관당 %d개)를 넘어서 %d권이 창고로 보관됐습니다.",
+                    name, Library.MAX_BOOKSHELVES, books.size()
+                ));
+                continue;
+            }
+
+            // Fits — create chunked shelves
+            int chunkIndex = 1;
             for (int i = 0; i < books.size(); i += MAX_BOOKS_PER_SHELF) {
                 List<ImportEntry> chunk = books.subList(i, Math.min(i + MAX_BOOKS_PER_SHELF, books.size()));
                 String shelfTitle = chunks > 1 ? name + " (" + chunkIndex + ")" : name;
@@ -126,9 +148,8 @@ public class BookmarkImportService {
                 }
 
                 shelvesCreated++;
-                if (chunks > 1) {
-                    chunkIndex++;
-                }
+                remainingShelfSlots--;
+                if (chunks > 1) chunkIndex++;
             }
 
             if (chunks > 1) {
@@ -137,7 +158,30 @@ public class BookmarkImportService {
             }
         }
 
-        return new ImportSummary("SHELVES", booksImported, shelvesCreated, 0, warnings);
+        return new ImportSummary("SHELVES", booksImported, shelvesCreated, storedCount, warnings);
+    }
+
+    /**
+     * Resolve which library the import targets. Explicit libraryId wins
+     * (with ownership check); otherwise fall back to the user's currently
+     * selected library; otherwise the first library.
+     */
+    private Library resolveTargetLibrary(Long userId, Long libraryId) {
+        if (libraryId != null) {
+            return libraryRepository.findByIdAndUserId(libraryId, userId)
+                .orElseThrow(() -> new ResponseStatusException(
+                    HttpStatus.NOT_FOUND, "Library not found"
+                ));
+        }
+        User user = userRepository.findById(userId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+        Long currentId = user.getCurrentLibraryId();
+        if (currentId != null) {
+            Library lib = libraryRepository.findByIdAndUserId(currentId, userId).orElse(null);
+            if (lib != null) return lib;
+        }
+        return libraryRepository.findFirstByUserIdOrderBySortOrderAscIdAsc(userId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Library not found"));
     }
 
     /**

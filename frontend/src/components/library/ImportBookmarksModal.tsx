@@ -1,7 +1,13 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button, Modal } from '../ui'
 import { parseBookmarksHtml, type ParseResult } from '../../utils/parseBookmarksHtml'
 import { importBookmarks, type ImportMode, type ImportSummary } from '../../api/bookmarks'
+import {
+  fetchMyLibraries,
+  MAX_BOOKSHELVES_PER_LIBRARY,
+  type LibrarySummary,
+} from '../../api/library'
+import { extractApiErrorMessage } from '../../api/client'
 
 interface Props {
   open: boolean
@@ -18,6 +24,8 @@ export function ImportBookmarksModal({ open, onClose, onImported }: Props) {
   const [mode, setMode] = useState<ImportMode>('SHELVES')
   const [summary, setSummary] = useState<ImportSummary | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [libraries, setLibraries] = useState<LibrarySummary[]>([])
+  const [targetLibraryId, setTargetLibraryId] = useState<number | null>(null)
 
   const reset = () => {
     setStage('pick')
@@ -32,6 +40,23 @@ export function ImportBookmarksModal({ open, onClose, onImported }: Props) {
     reset()
     onClose()
   }
+
+  // Fetch libraries each time the modal opens, so newly created ones appear.
+  useEffect(() => {
+    if (!open) return
+    fetchMyLibraries()
+      .then((list) => {
+        setLibraries(list)
+        // Default to the current library
+        const current = list.find((l) => l.isCurrent) ?? list[0]
+        if (current) setTargetLibraryId(current.id)
+      })
+      .catch(() => {})
+  }, [open])
+
+  const targetLibrary = libraries.find((l) => l.id === targetLibraryId) ?? null
+  const currentShelfCount = targetLibrary?.bookshelfCount ?? 0
+  const remainingSlots = MAX_BOOKSHELVES_PER_LIBRARY - currentShelfCount
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -48,7 +73,7 @@ export function ImportBookmarksModal({ open, onClose, onImported }: Props) {
       setParsed(result)
       setStage('preview')
     } catch (err) {
-      setError(err instanceof Error ? err.message : '파일을 읽지 못했습니다.')
+      setError(extractApiErrorMessage(err, '파일을 읽지 못했습니다.'))
     }
   }
 
@@ -59,6 +84,7 @@ export function ImportBookmarksModal({ open, onClose, onImported }: Props) {
     try {
       const result = await importBookmarks({
         mode,
+        libraryId: mode === 'SHELVES' ? targetLibraryId ?? undefined : undefined,
         entries: parsed.bookmarks.map((b) => ({
           url: b.url,
           title: b.title,
@@ -70,7 +96,7 @@ export function ImportBookmarksModal({ open, onClose, onImported }: Props) {
       setStage('done')
       onImported()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '가져오기에 실패했습니다.')
+      setError(extractApiErrorMessage(err, '가져오기에 실패했습니다.'))
       setStage('preview')
     }
   }
@@ -154,6 +180,42 @@ export function ImportBookmarksModal({ open, onClose, onImported }: Props) {
             )}
           </div>
 
+          {/* Library picker — only matters for SHELVES mode but shown always for clarity */}
+          <div>
+            <label
+              htmlFor="import-target-library"
+              className="text-sm font-medium text-(--color-ink-strong) block mb-1.5"
+            >
+              어느 도서관에 가져올까요?
+              {mode === 'STORAGE' && (
+                <span className="ml-2 text-xs text-(--color-ink-muted) font-normal">
+                  (창고로 보내기 모드는 도서관과 무관)
+                </span>
+              )}
+            </label>
+            <select
+              id="import-target-library"
+              value={targetLibraryId ?? ''}
+              onChange={(e) => setTargetLibraryId(e.target.value ? Number(e.target.value) : null)}
+              disabled={mode === 'STORAGE' || libraries.length === 0}
+              className="w-full px-3.5 py-2.5 text-[15px] bg-(--color-surface-raised)
+                         text-(--color-ink-strong) border border-(--color-line) rounded-(--radius-sm)
+                         focus:outline-none focus:border-(--color-walnut-500) focus:ring-2 focus:ring-(--color-walnut-300)/40
+                         disabled:bg-(--color-surface-sunken) disabled:cursor-not-allowed"
+            >
+              {libraries.map((lib) => {
+                const remaining = MAX_BOOKSHELVES_PER_LIBRARY - lib.bookshelfCount
+                return (
+                  <option key={lib.id} value={lib.id}>
+                    {lib.title} (책장 {lib.bookshelfCount} / {MAX_BOOKSHELVES_PER_LIBRARY}
+                    {remaining <= 0 ? ' · 가득' : ` · ${remaining}칸 여유`})
+                    {lib.isCurrent ? ' · 현재' : ''}
+                  </option>
+                )
+              })}
+            </select>
+          </div>
+
           {parsed.stats.folderSizes.length > 0 && (
             <details className="text-xs">
               <summary className="cursor-pointer text-(--color-ink-muted) hover:text-(--color-ink)">
@@ -172,6 +234,20 @@ export function ImportBookmarksModal({ open, onClose, onImported }: Props) {
             </details>
           )}
 
+          {sizeProjection && mode === 'SHELVES' && sizeProjection.shelves > remainingSlots && (
+            <div className="rounded-(--radius-sm) p-4 bg-(--color-walnut-50) border border-(--color-walnut-100) text-sm leading-relaxed">
+              <p className="font-medium text-(--color-walnut-700) mb-1">
+                ⚠ 책장 한도를 넘는 폴더가 있습니다
+              </p>
+              <p className="text-(--color-ink) text-xs">
+                선택한 도서관 <strong>"{targetLibrary?.title ?? ''}"</strong>에는 책장 {remainingSlots}칸 여유가 있는데
+                예상 {sizeProjection.shelves}개 책장이 만들어집니다.
+                남는 폴더는 자동으로 <strong>창고로 보관</strong>됩니다.
+                전체를 책장으로 정리하려면 <strong>다른 도서관을 선택</strong>하거나 새 도서관을 만들어주세요.
+              </p>
+            </div>
+          )}
+
           <div>
             <p className="text-sm font-medium text-(--color-ink-strong) mb-2">어떻게 가져올까요?</p>
             <div className="grid grid-cols-1 gap-2">
@@ -179,7 +255,7 @@ export function ImportBookmarksModal({ open, onClose, onImported }: Props) {
                 selected={mode === 'SHELVES'}
                 onClick={() => setMode('SHELVES')}
                 title="자동으로 책장 만들기"
-                description="폴더 구조대로 책장을 만들어 도서관에 진열합니다. 30권 초과 폴더는 자동으로 분할됩니다."
+                description="폴더 구조대로 책장을 만들어 위에서 선택한 도서관에 진열합니다. 30권 초과 폴더는 자동으로 분할됩니다."
               />
               <ModeOption
                 selected={mode === 'STORAGE'}
@@ -211,6 +287,9 @@ export function ImportBookmarksModal({ open, onClose, onImported }: Props) {
                 <>
                   <strong>{summary.shelvesCreated}개</strong> 책장에{' '}
                   <strong>{summary.booksImported}권</strong> 진열됨
+                  {summary.storedCount > 0 && (
+                    <>, <strong>{summary.storedCount}권</strong>은 창고로</>
+                  )}
                 </>
               ) : (
                 <>창고에 <strong>{summary.storedCount}권</strong> 보관됨</>

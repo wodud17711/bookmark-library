@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { fetchMe, type Me } from '../api/auth'
-import type { Book, Bookshelf } from '../api/library'
+import { MAX_BOOKSHELVES_PER_LIBRARY, type Book, type Bookshelf } from '../api/library'
 import { fetchStorageCount } from '../api/storage'
 import { useLibrary } from '../hooks/useLibrary'
 import { Button, Card, IconButton } from '../components/ui'
@@ -10,6 +10,12 @@ import { EditBookshelfModal } from '../components/library/EditBookshelfModal'
 import { EditBookModal } from '../components/library/EditBookModal'
 import { ImportBookmarksModal } from '../components/library/ImportBookmarksModal'
 import { StorageDrawer } from '../components/library/StorageDrawer'
+import { LibrarySettingsModal } from '../components/library/LibrarySettingsModal'
+import { PixiLibraryScene } from '../components/library/PixiLibraryScene'
+import { LibrarySwitcher } from '../components/library/LibrarySwitcher'
+import { CreateLibraryModal } from '../components/library/CreateLibraryModal'
+import { LibrarianModal } from '../components/library/LibrarianModal'
+import { switchCurrentLibrary } from '../api/library'
 
 export default function LibraryPage() {
   const [me, setMe] = useState<Me | null>(null)
@@ -23,6 +29,11 @@ export default function LibraryPage() {
   const [importing, setImporting] = useState(false)
   const [storageOpen, setStorageOpen] = useState(false)
   const [storageCount, setStorageCount] = useState(0)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [creatingLibrary, setCreatingLibrary] = useState(false)
+  const [librarianOpen, setLibrarianOpen] = useState(false)
+  /** Shelf to scroll to once a library switch finishes its refetch. */
+  const [pendingScrollShelfId, setPendingScrollShelfId] = useState<number | null>(null)
 
   useEffect(() => {
     fetchMe().then(setMe).catch((e) => setMeError(e.message))
@@ -40,6 +51,72 @@ export default function LibraryPage() {
     await refetch()
     refreshStorage()
   }, [refetch, refreshStorage])
+
+  // Refs to each shelf card so the Pixi scene can scroll-into-view on click.
+  const shelfCardRefs = useRef<Map<number, HTMLElement>>(new Map())
+  const registerShelfCard = useCallback((id: number, el: HTMLElement | null) => {
+    if (el) shelfCardRefs.current.set(id, el)
+    else shelfCardRefs.current.delete(id)
+  }, [])
+  const handleShelfClickInScene = useCallback((id: number) => {
+    const el = shelfCardRefs.current.get(id)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      el.classList.add('ring-2', 'ring-(--color-walnut-300)')
+      window.setTimeout(() => {
+        el.classList.remove('ring-2', 'ring-(--color-walnut-300)')
+      }, 1500)
+    }
+  }, [])
+
+  /**
+   * After library data updates (refetch following a switch), if there's a
+   * pending scroll target — scroll to it. This lets the librarian modal jump
+   * to a book in another library.
+   */
+  useEffect(() => {
+    if (pendingScrollShelfId === null) return
+    if (!library) return
+    const exists = library.bookshelves.some((s) => s.id === pendingScrollShelfId)
+    if (!exists) {
+      setPendingScrollShelfId(null)
+      return
+    }
+    // Wait one frame so the new ShelfCards have mounted and registered refs.
+    const id = window.requestAnimationFrame(() => {
+      handleShelfClickInScene(pendingScrollShelfId)
+      setPendingScrollShelfId(null)
+    })
+    return () => window.cancelAnimationFrame(id)
+  }, [library, pendingScrollShelfId, handleShelfClickInScene])
+
+  const handleLibrarianJump = useCallback(
+    async (libraryId: number, bookshelfId: number) => {
+      try {
+        await switchCurrentLibrary(libraryId)
+        setPendingScrollShelfId(bookshelfId)
+        await refetchAll()
+      } catch (e) {
+        console.error('Failed to switch library', e)
+      }
+    },
+    [refetchAll],
+  )
+
+  // Section refs for scrolling from Pixi scene to bestseller / private zones.
+  const bestsellerSectionRef = useRef<HTMLElement | null>(null)
+  const privateSectionRef = useRef<HTMLElement | null>(null)
+  const scrollToSection = useCallback((ref: React.RefObject<HTMLElement | null>) => {
+    ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [])
+
+  const favorites = useMemo(
+    () =>
+      library?.bookshelves
+        .flatMap((s) => s.books)
+        .filter((b) => b.isFavorite) ?? [],
+    [library],
+  )
 
   const totalBooks = useMemo(
     () => library?.bookshelves.reduce((sum, s) => sum + s.books.length, 0) ?? 0,
@@ -62,39 +139,113 @@ export default function LibraryPage() {
       <Header
         me={me}
         libraryTitle={library.title}
+        librarySlug={library.slug}
+        isPublic={library.isPublic}
         storageCount={storageCount}
         onImport={() => setImporting(true)}
         onOpenStorage={() => setStorageOpen(true)}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onSwitched={refetchAll}
+        onCreateLibrary={() => setCreatingLibrary(true)}
+        onOpenLibrarian={() => setLibrarianOpen(true)}
       />
 
       <main className="flex-1 max-w-6xl w-full mx-auto px-6 py-10 space-y-10">
-        <PixiPlaceholder />
+        <PixiLibraryScene
+          library={library}
+          favoritesCount={favorites.length}
+          storageCount={storageCount}
+          privateCount={library.bookshelves.filter((s) => s.zone === 'PRIVATE').length}
+          onShelfClick={handleShelfClickInScene}
+          onEntranceClick={() => setSettingsOpen(true)}
+          onBestsellerClick={() => scrollToSection(bestsellerSectionRef)}
+          onPrivateClick={() => scrollToSection(privateSectionRef)}
+          onStorageClick={() => setStorageOpen(true)}
+        />
 
-        <Section title="📚 책장" subtitle={`${library.bookshelves.filter(s => s.zone === 'PUBLIC').length}개 · 공유 시 보임`}>
+        {favorites.length > 0 && (
+          <section ref={bestsellerSectionRef} className="scroll-mt-24">
+            <SectionHeader
+              title="✨ 베스트셀러"
+              subtitle={`즐겨찾기한 ${favorites.length}권 · 도서관 입구 진열대에 놓여있습니다`}
+            />
+            <Card padding="md">
+              <ul className="grid grid-cols-1 md:grid-cols-2 gap-1">
+                {favorites.slice(0, 20).map((book) => (
+                  <li key={book.id} className="flex items-center gap-3 px-3 py-2.5 rounded-(--radius-sm) hover:bg-(--color-surface-sunken) transition-colors">
+                    <span
+                      className="w-1.5 h-8 rounded-(--radius-xs) shrink-0"
+                      style={{ background: book.coverColor }}
+                      aria-hidden="true"
+                    />
+                    <a
+                      href={book.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex-1 min-w-0 text-[14px] text-(--color-ink-strong) hover:text-(--color-walnut-500) transition-colors truncate"
+                      title={book.url}
+                    >
+                      {book.title}
+                    </a>
+                    <span className="text-(--color-walnut-500) text-sm" title="베스트셀러">★</span>
+                  </li>
+                ))}
+              </ul>
+              {favorites.length > 20 && (
+                <p className="text-xs text-(--color-ink-muted) text-center mt-3">
+                  ⌂ 베스트셀러 진열대는 최대 20권까지 보여줍니다 (현재 {favorites.length}권 중 20권 표시)
+                </p>
+              )}
+            </Card>
+          </section>
+        )}
+
+        <Section
+          title="📚 책장"
+          subtitle={`${library.bookshelves.length} / ${MAX_BOOKSHELVES_PER_LIBRARY} · 한 도서관에 최대 ${MAX_BOOKSHELVES_PER_LIBRARY}개`}
+        >
           <ShelfList
             shelves={library.bookshelves.filter((s) => s.zone === 'PUBLIC')}
             onAddBook={setAddingBookFor}
             onEditShelf={setEditingShelf}
             onEditBook={setEditingBook}
+            registerCard={registerShelfCard}
           />
-          <div className="mt-4">
-            <Button variant="secondary" onClick={() => setAddingShelf(true)}>
-              + 새 책장 추가
+          <div className="mt-4 flex items-center gap-3">
+            <Button
+              variant="secondary"
+              onClick={() => setAddingShelf(true)}
+              disabled={library.bookshelves.length >= MAX_BOOKSHELVES_PER_LIBRARY}
+            >
+              {library.bookshelves.length >= MAX_BOOKSHELVES_PER_LIBRARY
+                ? `책장이 가득찼어요 (${MAX_BOOKSHELVES_PER_LIBRARY}/${MAX_BOOKSHELVES_PER_LIBRARY})`
+                : '+ 새 책장 추가'}
             </Button>
+            {library.bookshelves.length >= MAX_BOOKSHELVES_PER_LIBRARY && (
+              <button
+                type="button"
+                onClick={() => setCreatingLibrary(true)}
+                className="text-sm text-(--color-walnut-500) hover:text-(--color-walnut-700) font-medium"
+              >
+                새 도서관 만들기 →
+              </button>
+            )}
           </div>
         </Section>
 
-        <Section
-          title="🔒 프라이빗 룸"
-          subtitle={`${library.bookshelves.filter(s => s.zone === 'PRIVATE').length}개 · 공유해도 보이지 않음`}
-        >
+        <section ref={privateSectionRef} className="scroll-mt-24">
+          <SectionHeader
+            title="🔒 프라이빗 룸"
+            subtitle={`${library.bookshelves.filter(s => s.zone === 'PRIVATE').length}개 · 공유해도 보이지 않음`}
+          />
           <ShelfList
             shelves={library.bookshelves.filter((s) => s.zone === 'PRIVATE')}
             onAddBook={setAddingBookFor}
             onEditShelf={setEditingShelf}
             onEditBook={setEditingBook}
+            registerCard={registerShelfCard}
           />
-        </Section>
+        </section>
       </main>
 
       <footer className="mt-12 py-8 border-t border-(--color-line-soft) text-center">
@@ -144,6 +295,24 @@ export default function LibraryPage() {
         onClose={() => setStorageOpen(false)}
         onChanged={refetchAll}
       />
+      <LibrarySettingsModal
+        open={settingsOpen}
+        library={library}
+        onClose={() => setSettingsOpen(false)}
+        onSaved={refetch}
+      />
+      <CreateLibraryModal
+        open={creatingLibrary}
+        onClose={() => setCreatingLibrary(false)}
+        onCreated={refetchAll}
+      />
+      <LibrarianModal
+        open={librarianOpen}
+        onClose={() => setLibrarianOpen(false)}
+        onScrollToShelf={handleShelfClickInScene}
+        onJumpToOtherLibrary={handleLibrarianJump}
+        onOpenStorage={() => setStorageOpen(true)}
+      />
     </div>
   )
 }
@@ -151,23 +320,52 @@ export default function LibraryPage() {
 function Header({
   me,
   libraryTitle,
+  librarySlug,
+  isPublic,
   storageCount,
   onImport,
   onOpenStorage,
+  onOpenSettings,
+  onSwitched,
+  onCreateLibrary,
+  onOpenLibrarian,
 }: {
   me: Me
   libraryTitle: string
+  librarySlug: string
+  isPublic: boolean
   storageCount: number
   onImport: () => void
   onOpenStorage: () => void
+  onOpenSettings: () => void
+  onSwitched: () => void
+  onCreateLibrary: () => void
+  onOpenLibrarian: () => void
 }) {
   return (
     <header className="border-b border-(--color-line) bg-(--color-surface-raised)/60 backdrop-blur-sm sticky top-0 z-10">
       <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between gap-4">
-        <h1 className="font-display text-xl font-semibold text-(--color-ink-strong) tracking-tight truncate">
-          {libraryTitle}
-        </h1>
+        <LibrarySwitcher
+          currentTitle={libraryTitle}
+          onSwitched={onSwitched}
+          onRequestCreate={onCreateLibrary}
+        />
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onOpenLibrarian}
+            className="text-sm px-3 py-1.5 rounded-(--radius-sm) hover:bg-(--color-surface-sunken) transition-colors text-(--color-ink) flex items-center gap-1.5"
+            title="책 찾기"
+          >
+            <span>📖</span>
+            <span className="hidden md:inline">사서</span>
+          </button>
+          <ShareButton
+            username={me.username}
+            slug={librarySlug}
+            isPublic={isPublic}
+            onSettings={onOpenSettings}
+          />
           <button
             type="button"
             onClick={onOpenStorage}
@@ -180,6 +378,9 @@ function Header({
           <Button variant="secondary" size="sm" onClick={onImport}>
             가져오기
           </Button>
+          <IconButton label="도서관 설정" onClick={onOpenSettings}>
+            <SettingsIcon />
+          </IconButton>
           <span className="hidden md:inline-block w-px h-5 bg-(--color-line) mx-1" />
           <span className="hidden md:inline text-sm text-(--color-ink-muted)">@{me.username}</span>
           <a
@@ -194,22 +395,55 @@ function Header({
   )
 }
 
-function PixiPlaceholder() {
+function ShareButton({
+  username,
+  slug,
+  isPublic,
+  onSettings,
+}: {
+  username: string
+  slug: string
+  isPublic: boolean
+  onSettings: () => void
+}) {
+  const [copied, setCopied] = useState(false)
+  const url = `${window.location.origin}/u/${username}/${slug}`
+
+  const handleClick = async () => {
+    if (!isPublic) {
+      const ok = window.confirm(
+        '도서관이 비공개 상태입니다. 공개 도서관으로 바꾸려면 설정을 열까요?',
+      )
+      if (ok) onSettings()
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 2000)
+    } catch {
+      window.prompt('아래 링크를 복사하세요', url)
+    }
+  }
+
   return (
-    <Card variant="raised" padding="lg" className="border-dashed">
-      <div className="flex items-start gap-4">
-        <div className="text-2xl">📚</div>
-        <div className="flex-1">
-          <h2 className="font-medium text-(--color-ink-strong) mb-1">
-            도서관 평면도가 여기에 그려질 자리예요.
-          </h2>
-          <p className="text-sm text-(--color-ink-muted) leading-relaxed">
-            지금은 책/책장을 직접 추가/편집/삭제할 수 있는 리스트 모드입니다.
-            데이터를 좀 채워두면 다음 단계(Pixi.js 평면도 시각화)에서 책장이 진짜 풍경으로 그려집니다.
-          </p>
-        </div>
-      </div>
-    </Card>
+    <Button variant="secondary" size="sm" onClick={handleClick}>
+      {copied ? '✓ 복사됨' : isPublic ? '공유' : '공유 (비공개)'}
+    </Button>
+  )
+}
+
+function SettingsIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="8" r="2.2" stroke="currentColor" strokeWidth="1.3" />
+      <path
+        d="M8 1.5v1.8M8 12.7v1.8M3.4 3.4l1.3 1.3M11.3 11.3l1.3 1.3M1.5 8h1.8M12.7 8h1.8M3.4 12.6l1.3-1.3M11.3 4.7l1.3-1.3"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+      />
+    </svg>
   )
 }
 
@@ -224,14 +458,20 @@ function Section({
 }) {
   return (
     <section>
-      <div className="mb-4">
-        <h2 className="font-display text-2xl font-semibold text-(--color-ink-strong) tracking-tight">
-          {title}
-        </h2>
-        <p className="text-sm text-(--color-ink-muted) mt-1">{subtitle}</p>
-      </div>
+      <SectionHeader title={title} subtitle={subtitle} />
       {children}
     </section>
+  )
+}
+
+function SectionHeader({ title, subtitle }: { title: string; subtitle: string }) {
+  return (
+    <div className="mb-4">
+      <h2 className="font-display text-2xl font-semibold text-(--color-ink-strong) tracking-tight">
+        {title}
+      </h2>
+      <p className="text-sm text-(--color-ink-muted) mt-1">{subtitle}</p>
+    </div>
   )
 }
 
@@ -240,11 +480,13 @@ function ShelfList({
   onAddBook,
   onEditShelf,
   onEditBook,
+  registerCard,
 }: {
   shelves: Bookshelf[]
   onAddBook: (shelf: Bookshelf) => void
   onEditShelf: (shelf: Bookshelf) => void
   onEditBook: (book: Book) => void
+  registerCard?: (id: number, el: HTMLElement | null) => void
 }) {
   if (shelves.length === 0) {
     return (
@@ -262,6 +504,7 @@ function ShelfList({
           onAddBook={() => onAddBook(shelf)}
           onEditShelf={() => onEditShelf(shelf)}
           onEditBook={onEditBook}
+          registerCard={registerCard}
         />
       ))}
     </div>
@@ -273,11 +516,13 @@ function ShelfCard({
   onAddBook,
   onEditShelf,
   onEditBook,
+  registerCard,
 }: {
   shelf: Bookshelf
   onAddBook: () => void
   onEditShelf: () => void
   onEditBook: (book: Book) => void
+  registerCard?: (id: number, el: HTMLElement | null) => void
 }) {
   const usage = shelf.books.length / shelf.maxBooks
   const usageHue =
@@ -289,7 +534,11 @@ function ShelfCard({
   const isFull = shelf.books.length >= shelf.maxBooks
 
   return (
-    <Card padding="md">
+    <Card
+      padding="md"
+      ref={(el) => registerCard?.(shelf.id, el)}
+      className="transition-shadow scroll-mt-24"
+    >
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-3">
           <h3 className="font-display text-lg font-semibold text-(--color-ink-strong)">

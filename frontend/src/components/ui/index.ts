@@ -1,5 +1,6 @@
 export { Button } from './Button'
 export { IconButton } from './IconButton'
 export { TextInput } from './TextInput'
+export { Textarea } from './Textarea'
 export { Card } from './Card'
 export { Modal } from './Modal'
