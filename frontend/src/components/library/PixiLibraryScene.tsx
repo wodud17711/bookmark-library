@@ -35,6 +35,24 @@ interface Props {
 // Below this viewport width the floor plan switches to a 9:16 portrait layout
 // (pedestal moves above the shelves so it no longer competes with shelf width).
 const MOBILE_BREAKPOINT = 600
+// Tablets in portrait orientation (iPad mini ~768, iPad ~820, Galaxy Tab S7+
+// ~1080) sit above MOBILE_BREAKPOINT but their canvas is still too narrow for
+// the desktop landscape silhouette/shelf layout. Treat them as portrait when
+// the device is held vertically. Cap at 1080 so external monitors with tall
+// browser windows on a desktop don't accidentally trip the portrait branch.
+const TABLET_PORTRAIT_MAX_WIDTH = 1080
+
+function shouldUsePortrait(): boolean {
+  if (typeof window === 'undefined') return false
+  if (window.innerWidth < MOBILE_BREAKPOINT) return true
+  if (
+    window.innerWidth < TABLET_PORTRAIT_MAX_WIDTH &&
+    window.innerHeight > window.innerWidth
+  ) {
+    return true
+  }
+  return false
+}
 
 /**
  * Top-down floor plan rendered with Pixi.js.
@@ -59,16 +77,22 @@ export function PixiLibraryScene(props: Props) {
   // Mobile portrait detection — drives both the host aspect-ratio (9:16 vs 16:9)
   // and the internal layout branch in drawScene. ResizeObserver re-runs drawScene
   // whenever the host changes size, so flipping the aspect-ratio re-renders the
-  // floor plan in the new orientation automatically.
-  const [isPortrait, setIsPortrait] = useState<boolean>(() =>
-    typeof window !== 'undefined' && window.innerWidth < MOBILE_BREAKPOINT,
-  )
+  // floor plan in the new orientation automatically. Triggers for small phones
+  // AND for tablets held vertically (where width still leaves the desktop
+  // 16:9 layout too narrow).
+  const [isPortrait, setIsPortrait] = useState<boolean>(shouldUsePortrait)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const update = () => setIsPortrait(window.innerWidth < MOBILE_BREAKPOINT)
+    const update = () => setIsPortrait(shouldUsePortrait())
     window.addEventListener('resize', update)
-    return () => window.removeEventListener('resize', update)
+    // Some tablets fire orientationchange before the layout viewport updates;
+    // listen explicitly so the swap is responsive to physical rotation.
+    window.addEventListener('orientationchange', update)
+    return () => {
+      window.removeEventListener('resize', update)
+      window.removeEventListener('orientationchange', update)
+    }
   }, [])
 
   useEffect(() => {
