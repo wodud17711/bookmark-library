@@ -11,7 +11,6 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
-import jakarta.persistence.Lob;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OrderBy;
@@ -22,6 +21,8 @@ import jakarta.persistence.UniqueConstraint;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -79,7 +80,7 @@ public class Library {
     private String floorPaletteName = "cream-pine";
 
     /** Free-form welcome message shown at the entrance. Visible to public visitors. */
-    @Lob
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
     @Column(name = "welcome_message", columnDefinition = "TEXT")
     private String welcomeMessage;
 
@@ -92,8 +93,13 @@ public class Library {
      * Pixi floor plan after draw completes and uploads it here, so social link
      * previews can show the actual library without a headless renderer on the
      * server. Nullable until the owner has visited their library on desktop.
+     *
+     * <p>{@code @JdbcTypeCode(LONGVARBINARY)} forces the type to map to
+     * {@code bytea} on PostgreSQL (avoiding Hibernate 6's default OID-based
+     * Large Object mapping for {@code @Lob byte[]} which leaks LOs and needs
+     * special transactional handling). On H2 it maps to VARBINARY/BLOB-equivalent.
      */
-    @Lob
+    @JdbcTypeCode(SqlTypes.LONGVARBINARY)
     @Column(name = "og_image")
     private byte[] ogImage;
 
