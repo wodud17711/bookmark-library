@@ -30,6 +30,8 @@ public class SecurityConfig {
                 .requestMatchers("/api/u/**").permitAll()
                 // Public OG image bytes — fetched by social-media crawlers
                 .requestMatchers("/og/**").permitAll()
+                // Public-share HTML (server-rendered with OG meta tags)
+                .requestMatchers("/u/**").permitAll()
                 .requestMatchers("/api/**").authenticated()
                 .anyRequest().permitAll()
             )

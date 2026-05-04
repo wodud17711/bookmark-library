@@ -9,6 +9,7 @@ import com.google.bookmark.domain.User;
 import com.google.bookmark.dto.BookResponse;
 import com.google.bookmark.dto.BookshelfResponse;
 import com.google.bookmark.dto.CreateLibraryRequest;
+import com.google.bookmark.dto.LibraryOgMetadata;
 import com.google.bookmark.dto.LibraryResponse;
 import com.google.bookmark.dto.LibrarySummary;
 import com.google.bookmark.dto.UpdateLibraryRequest;
@@ -155,6 +156,25 @@ public class LibraryService {
             .filter(Library::isPublic)
             .map(Library::getOgImage)
             .filter(bytes -> bytes != null && bytes.length > 0);
+    }
+
+    /**
+     * OG metadata for the public-share HTML at {@code /u/{username}/{slug}}.
+     * Returns empty if the library doesn't exist or is private — the caller
+     * should serve a generic fallback in that case so crawlers don't 500.
+     */
+    public Optional<LibraryOgMetadata> getPublicLibraryOgMetadata(String username, String slug) {
+        return libraryRepository.findByUserUsernameAndSlug(username, slug)
+            .filter(Library::isPublic)
+            .map(lib -> new LibraryOgMetadata(
+                lib.getTitle(),
+                lib.getWelcomeMessage(),
+                lib.getUser().getUsername(),
+                lib.getUser().getDisplayName(),
+                lib.getSlug(),
+                lib.getBookshelves().size(),
+                lib.getOgImage() != null && lib.getOgImage().length > 0
+            ));
     }
 
     // ─── Internal ────────────────────────────────────────

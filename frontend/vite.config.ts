@@ -32,6 +32,14 @@ export default defineConfig({
         target: 'http://localhost:8081',
         changeOrigin: true,
       },
+      // Public-share HTML — Spring Boot returns the page with OG meta tags
+      // baked in so link-preview crawlers see them without running JS. The
+      // returned HTML's <script> tag still bootstraps the SPA from this dev
+      // server, so human visitors get the full app.
+      '/u': {
+        target: 'http://localhost:8081',
+        changeOrigin: true,
+      },
     },
   },
 })
