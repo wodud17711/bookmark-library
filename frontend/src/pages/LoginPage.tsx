@@ -1,3 +1,5 @@
+import { Link } from 'react-router-dom'
+
 export default function LoginPage() {
   return (
     <div className="min-h-full flex items-center justify-center px-6 py-16">
@@ -33,13 +35,19 @@ export default function LoginPage() {
 
         <p className="mt-10 text-xs text-(--color-ink-faint)">
           로그인하면{' '}
-          <span className="text-(--color-ink-muted) underline-offset-2 hover:underline cursor-default">
+          <Link
+            to="/terms"
+            className="text-(--color-ink-muted) underline underline-offset-2 hover:text-(--color-walnut-500)"
+          >
             서비스 이용약관
-          </span>{' '}
+          </Link>{' '}
           및{' '}
-          <span className="text-(--color-ink-muted) underline-offset-2 hover:underline cursor-default">
+          <Link
+            to="/privacy"
+            className="text-(--color-ink-muted) underline underline-offset-2 hover:text-(--color-walnut-500)"
+          >
             개인정보 처리방침
-          </span>
+          </Link>
           에 동의한 것으로 간주됩니다.
         </p>
       </div>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { fetchPublicLibrary, type Bookshelf, type Library, type Book } from '../api/library'
 import { extractApiErrorMessage } from '../api/client'
 import { Button, Card } from '../components/ui'
@@ -216,8 +216,15 @@ function PublicLibraryView({ library }: { library: Library }) {
         <Button onClick={() => (window.location.href = '/login')} size="lg">
           내 도서관 만들기
         </Button>
-        <p className="mt-6 text-xs text-(--color-ink-faint)">
-          📚 북마크 도서관
+        <p className="mt-6 text-xs text-(--color-ink-faint)">📚 북마크 도서관</p>
+        <p className="mt-2 text-xs text-(--color-ink-faint) flex items-center justify-center gap-3">
+          <Link to="/terms" className="hover:text-(--color-walnut-500) transition-colors">
+            이용약관
+          </Link>
+          <span aria-hidden="true">·</span>
+          <Link to="/privacy" className="hover:text-(--color-walnut-500) transition-colors">
+            개인정보처리방침
+          </Link>
         </p>
       </footer>
       <BackToTopButton />
