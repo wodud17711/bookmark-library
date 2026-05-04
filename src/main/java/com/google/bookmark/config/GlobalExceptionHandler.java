@@ -7,6 +7,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -46,6 +48,21 @@ public class GlobalExceptionHandler {
         body.put("error", fallbackPhrase);
         body.put("message", (reason == null || reason.isBlank()) ? fallbackPhrase : reason);
         return ResponseEntity.status(statusCode).body(body);
+    }
+
+    /**
+     * Spring throws these when no controller / static resource matches the
+     * request URI. Without a specific handler the catch-all below would turn
+     * a perfectly normal "page not found" into a 500. Return a clean 404 JSON.
+     */
+    @ExceptionHandler({ NoHandlerFoundException.class, NoResourceFoundException.class })
+    public ResponseEntity<Map<String, Object>> handleNotFound(Exception ex) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("timestamp", Instant.now().toString());
+        body.put("status", HttpStatus.NOT_FOUND.value());
+        body.put("error", HttpStatus.NOT_FOUND.getReasonPhrase());
+        body.put("message", "요청하신 경로를 찾을 수 없습니다.");
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
     }
 
     /**
