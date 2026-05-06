@@ -900,7 +900,7 @@ function BookRow({ book, onEdit }: { book: Book; onEdit: () => void }) {
       {book.isFavorite && <span className="text-(--color-walnut-500) text-sm" title="베스트셀러">★</span>}
       <button
         onClick={onEdit}
-        className="opacity-0 group-hover:opacity-100 transition-opacity
+        className="md:opacity-0 md:group-hover:opacity-100 transition-opacity
                    text-xs text-(--color-ink-muted) hover:text-(--color-walnut-500) px-2"
         aria-label="편집"
       >

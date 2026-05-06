@@ -277,7 +277,7 @@ export function StorageDrawer({ open, shelves, onClose, onChanged }: Props) {
                             label="버리기"
                             size="sm"
                             onClick={() => handleDelete(b.id)}
-                            className="opacity-0 group-hover:opacity-100 mr-1"
+                            className="md:opacity-0 md:group-hover:opacity-100 mr-1"
                           >
                             <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                               <path d="M2 3h8M5 5v4M7 5v4M3 3l1 7h4l1-7" stroke="currentColor" strokeWidth="1" />
