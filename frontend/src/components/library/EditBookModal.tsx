@@ -9,6 +9,7 @@ import {
 } from '../../api/library'
 import { extractApiErrorMessage } from '../../api/client'
 import { BookCoverPicker } from './BookCoverPicker'
+import { recordColor } from '../../utils/bookCoverPalette'
 
 interface Props {
   open: boolean
@@ -79,6 +80,7 @@ export function EditBookModal({
         isFavorite,
         ...(movingShelves && shelfId !== null ? { bookshelfId: shelfId } : {}),
       })
+      if (coverColor !== book.coverColor) recordColor(coverColor)
       onChanged()
       onClose()
     } catch (err) {
