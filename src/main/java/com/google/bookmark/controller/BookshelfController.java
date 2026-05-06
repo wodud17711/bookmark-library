@@ -2,6 +2,7 @@ package com.google.bookmark.controller;
 
 import com.google.bookmark.dto.BookshelfResponse;
 import com.google.bookmark.dto.CreateBookshelfRequest;
+import com.google.bookmark.dto.ReorderBooksRequest;
 import com.google.bookmark.dto.UpdateBookshelfRequest;
 import com.google.bookmark.security.UserPrincipal;
 import com.google.bookmark.service.BookshelfService;
@@ -54,6 +55,16 @@ public class BookshelfController {
     ) {
         require(principal);
         bookshelfService.delete(principal.getUserId(), id);
+    }
+
+    @PatchMapping("/{id}/book-order")
+    public BookshelfResponse reorderBooks(
+        @AuthenticationPrincipal UserPrincipal principal,
+        @PathVariable Long id,
+        @Valid @RequestBody ReorderBooksRequest request
+    ) {
+        require(principal);
+        return bookshelfService.reorderBooks(principal.getUserId(), id, request.orderedBookIds());
     }
 
     private static void require(UserPrincipal principal) {

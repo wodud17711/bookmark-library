@@ -17,7 +17,12 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -94,6 +99,36 @@ public class BookshelfService {
         Library library = shelf.getLibrary();
         library.getBookshelves().remove(shelf);
         // orphanRemoval=true on Library.bookshelves cascades the delete.
+    }
+
+    /**
+     * Persist a new manual order for the books on a shelf. The supplied list
+     * must contain exactly the IDs of every book currently on the shelf; any
+     * mismatch (missing, extra, or foreign IDs) is rejected so a stale client
+     * cannot accidentally drop books off the shelf via reorder.
+     */
+    public BookshelfResponse reorderBooks(Long userId, Long bookshelfId, List<Long> orderedBookIds) {
+        Bookshelf shelf = loadOwnedBookshelf(userId, bookshelfId);
+
+        Set<Long> existingIds = shelf.getBooks().stream()
+            .map(b -> b.getId())
+            .collect(Collectors.toSet());
+        Set<Long> requestedIds = new HashSet<>(orderedBookIds);
+
+        if (orderedBookIds.size() != existingIds.size() || !requestedIds.equals(existingIds)) {
+            throw new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "책장의 책 목록이 변경되었습니다. 새로고침 후 다시 시도해주세요."
+            );
+        }
+
+        Map<Long, Integer> indexById = new HashMap<>();
+        for (int i = 0; i < orderedBookIds.size(); i++) {
+            indexById.put(orderedBookIds.get(i), i);
+        }
+        shelf.getBooks().forEach(b -> b.setPosition(indexById.get(b.getId())));
+
+        return toResponse(shelf);
     }
 
     private Bookshelf loadOwnedBookshelf(Long userId, Long bookshelfId) {

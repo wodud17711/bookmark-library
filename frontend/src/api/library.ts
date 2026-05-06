@@ -163,6 +163,17 @@ export async function deleteBookshelf(id: number): Promise<void> {
   await apiClient.delete(`/bookshelves/${id}`)
 }
 
+export async function reorderBooksInShelf(
+  bookshelfId: number,
+  orderedBookIds: number[],
+): Promise<Bookshelf> {
+  const { data } = await apiClient.patch<Bookshelf>(
+    `/bookshelves/${bookshelfId}/book-order`,
+    { orderedBookIds },
+  )
+  return data
+}
+
 // ─── Book ───────────────────────────────────────────────
 
 export interface CreateBookPayload {

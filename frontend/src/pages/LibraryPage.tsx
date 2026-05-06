@@ -1,7 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import {
+  DndContext,
+  PointerSensor,
+  TouchSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { fetchMe, type Me } from '../api/auth'
-import { MAX_BOOKSHELVES_PER_LIBRARY, type Book, type Bookshelf } from '../api/library'
+import {
+  MAX_BOOKSHELVES_PER_LIBRARY,
+  reorderBooksInShelf,
+  type Book,
+  type Bookshelf,
+} from '../api/library'
 import { fetchStorageCount } from '../api/storage'
 import { useLibrary } from '../hooks/useLibrary'
 import { Button, Card, IconButton } from '../components/ui'
@@ -271,6 +292,7 @@ export default function LibraryPage() {
             onAddBook={setAddingBookFor}
             onEditShelf={setEditingShelf}
             onEditBook={setEditingBook}
+            onReordered={refetch}
             registerCard={registerShelfCard}
           />
         </Section>
@@ -285,6 +307,7 @@ export default function LibraryPage() {
             onAddBook={setAddingBookFor}
             onEditShelf={setEditingShelf}
             onEditBook={setEditingBook}
+            onReordered={refetch}
             registerCard={registerShelfCard}
           />
         </section>
@@ -710,12 +733,14 @@ function ShelfList({
   onAddBook,
   onEditShelf,
   onEditBook,
+  onReordered,
   registerCard,
 }: {
   shelves: Bookshelf[]
   onAddBook: (shelf: Bookshelf) => void
   onEditShelf: (shelf: Bookshelf) => void
   onEditBook: (book: Book) => void
+  onReordered: () => void
   registerCard?: (id: number, el: HTMLElement | null) => void
 }) {
   if (shelves.length === 0) {
@@ -734,6 +759,7 @@ function ShelfList({
           onAddBook={() => onAddBook(shelf)}
           onEditShelf={() => onEditShelf(shelf)}
           onEditBook={onEditBook}
+          onReordered={onReordered}
           registerCard={registerCard}
         />
       ))}
@@ -746,15 +772,51 @@ function ShelfCard({
   onAddBook,
   onEditShelf,
   onEditBook,
+  onReordered,
   registerCard,
 }: {
   shelf: Bookshelf
   onAddBook: () => void
   onEditShelf: () => void
   onEditBook: (book: Book) => void
+  onReordered: () => void
   registerCard?: (id: number, el: HTMLElement | null) => void
 }) {
   const [expanded, setExpanded] = useState(true)
+  // Local copy of books so drag reorder updates UI optimistically while the
+  // API call to /book-order is in flight; reverted on error.
+  const [books, setBooks] = useState(shelf.books)
+  useEffect(() => {
+    setBooks(shelf.books)
+  }, [shelf.books])
+
+  // Sensors gated by activation constraint so that a click on the title link
+  // (no movement) and a quick tap (no long-hold) still navigate normally —
+  // drag only kicks in once the user clearly intends it.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
+  )
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIdx = books.findIndex((b) => b.id === active.id)
+    const newIdx = books.findIndex((b) => b.id === over.id)
+    if (oldIdx < 0 || newIdx < 0) return
+    const next = arrayMove(books, oldIdx, newIdx)
+    setBooks(next)
+    try {
+      await reorderBooksInShelf(
+        shelf.id,
+        next.map((b) => b.id),
+      )
+      onReordered()
+    } catch {
+      setBooks(shelf.books)
+    }
+  }
+
   const usage = shelf.books.length / shelf.maxBooks
   const usageHue =
     usage < 0.7
@@ -797,14 +859,18 @@ function ShelfCard({
       </div>
 
       {expanded &&
-        (shelf.books.length === 0 ? (
+        (books.length === 0 ? (
           <EmptyShelf onAddBook={onAddBook} />
         ) : (
-          <ul className="grid grid-cols-1 md:grid-cols-2 gap-1">
-            {shelf.books.map((book) => (
-              <BookRow key={book.id} book={book} onEdit={() => onEditBook(book)} />
-            ))}
-          </ul>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={books.map((b) => b.id)} strategy={verticalListSortingStrategy}>
+              <ul className="grid grid-cols-1 md:grid-cols-2 gap-1">
+                {books.map((book) => (
+                  <SortableBookRow key={book.id} book={book} onEdit={() => onEditBook(book)} />
+                ))}
+              </ul>
+            </SortableContext>
+          </DndContext>
         ))}
     </Card>
   )
@@ -880,13 +946,30 @@ function EmptyShelf({ onAddBook }: { onAddBook: () => void }) {
   )
 }
 
-function BookRow({ book, onEdit }: { book: Book; onEdit: () => void }) {
+function SortableBookRow({ book, onEdit }: { book: Book; onEdit: () => void }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: book.id,
+  })
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : undefined,
+    zIndex: isDragging ? 10 : undefined,
+  }
   return (
-    <li className="group flex items-center gap-3 px-3 py-2.5 rounded-(--radius-sm) hover:bg-(--color-surface-sunken) transition-colors">
+    <li
+      ref={setNodeRef}
+      style={style}
+      className="group flex items-center gap-3 px-3 py-2.5 rounded-(--radius-sm) hover:bg-(--color-surface-sunken) transition-colors"
+    >
+      {/* The colored spine doubles as the drag handle — touch-none so the
+          browser doesn't try to scroll the page from the same gesture. */}
       <span
-        className="w-1.5 h-8 rounded-(--radius-xs) shrink-0"
+        {...attributes}
+        {...listeners}
+        className="w-1.5 h-8 rounded-(--radius-xs) shrink-0 cursor-grab active:cursor-grabbing touch-none"
         style={{ background: book.coverColor }}
-        aria-hidden="true"
+        aria-label="드래그하여 순서 변경"
       />
       <a
         href={book.url}
