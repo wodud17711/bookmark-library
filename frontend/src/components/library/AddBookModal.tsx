@@ -5,6 +5,20 @@ import { extractApiErrorMessage } from '../../api/client'
 import { BookCoverPicker } from './BookCoverPicker'
 
 const DEFAULT_COVER = '#3D2817'
+// Per-browser preference: which cover color the user last picked when adding
+// a new book. Saves the friction of finding the same color on every add.
+const LAST_COVER_KEY = 'bookmark.lastBookCover'
+const HEX_RE = /^#[0-9A-Fa-f]{6}$/
+
+function readLastCover(): string {
+  try {
+    const stored = localStorage.getItem(LAST_COVER_KEY)
+    if (stored && HEX_RE.test(stored)) return stored.toUpperCase()
+  } catch {
+    // localStorage may throw in private mode / quota issues — silently fall back.
+  }
+  return DEFAULT_COVER
+}
 
 interface Props {
   open: boolean
@@ -22,10 +36,11 @@ export function AddBookModal({ open, bookshelfId, bookshelfTitle, onClose, onCre
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!open) {
+    if (open) {
+      setCoverColor(readLastCover())
+    } else {
       setUrl('')
       setTitle('')
-      setCoverColor(DEFAULT_COVER)
       setError(null)
     }
   }, [open])
@@ -54,6 +69,11 @@ export function AddBookModal({ open, bookshelfId, bookshelfTitle, onClose, onCre
         title: title.trim() || undefined,
         coverColor,
       })
+      try {
+        localStorage.setItem(LAST_COVER_KEY, coverColor)
+      } catch {
+        // localStorage may fail; the book was created successfully so swallow.
+      }
       onCreated()
       onClose()
     } catch (err) {
