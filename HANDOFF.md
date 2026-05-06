@@ -1,5 +1,239 @@
 # HANDOFF
 
+## [2026-05-06] 네 번째 큰 세션 — 운영 배포 + 모바일 UX + "꾸미기 캔버스" 강화 (책 색상 + 드래그 정렬 + 로그인 안내)
+
+이번 세션은 두 흐름. **(1) 실제 운영 배포** Railway/Vercel/Google OAuth Console 셋업 + OAuth 세션 쿠키 도메인 이슈 픽스 → 라이브. **(2) 비전("꾸미고 자랑하고 싶어지는 캔버스") 강화** 책 색상 picker + 드래그 정렬 + 로그인 페이지 안내. 친구가 실제 사용 시작했고 모바일 UX 이슈 두 건 픽스 (ghost-click + hover-only affordance).
+
+운영 도메인:
+- 백엔드 (Railway + Postgres): `bookmark-library-production.up.railway.app`
+- 프론트엔드 (Vercel): `bookmark-library-iota.vercel.app`
+- repo: https://github.com/wodud17711/bookmark-library
+
+### 오늘 한 일 (큰 묶음 단위)
+
+#### A. 운영 배포 — Railway 백엔드 + Vercel 프론트엔드
+
+배포 설정 파일 신규:
+- [Dockerfile](Dockerfile) — multi-stage(temurin 17 jdk → jre), `bootJar` 산출물 실행, `fontconfig` 설치 (AWT/Graphics2D 초기화 안정용)
+- [.dockerignore](.dockerignore) — frontend/, build/, .gradle/, .claude/ 등 제외
+- [frontend/vercel.json](frontend/vercel.json) — rewrites
+  - `/api`, `/og`, `/oauth2`, `/login/oauth2`, `/logout` → Railway 무조건
+  - `/u/*` → **UA 조건부**: 봇(Twitterbot/kakaotalk-scrap/etc) Railway, 사람 SPA index.html (dev vite proxy의 UA-bypass와 동일 정책)
+  - SPA catch-all `/:path* → /index.html` (login/privacy/terms 등 react-router 라우트)
+  - `__RAILWAY_HOST__` placeholder를 실제 도메인으로 치환
+
+[application.yml](src/main/resources/application.yml) 운영 환경 대응:
+- `server.port: ${PORT:8081}` — Railway 동적 PORT 매핑 (실제는 8080)
+- `server.forward-headers-strategy: framework` — Railway LB 뒤 HTTPS / public host 인식
+- `app.spa.script-url: ${SPA_SCRIPT_URL:/src/main.tsx}` — env 명시 binding
+
+Railway 셋업 절차:
+1. GitHub OAuth로 가입 → Configure GitHub App → repo 권한
+2. New Project → Deploy from GitHub repo → Dockerfile 자동 감지
+3. **+ Database → Add PostgreSQL** (이름 자동 `Postgres`로 떨어짐)
+4. 백엔드 서비스 Variables에 환경변수:
+   - `SPRING_PROFILES_ACTIVE=postgres`
+   - `GOOGLE_CLIENT_ID/SECRET`
+   - `FRONTEND_URL=https://bookmark-library-iota.vercel.app`
+   - `DB_HOST=${{Postgres.PGHOST}}` 등 5개 (반드시 Variables Value 필드의 **자동완성 드롭다운에서 선택** — 손으로 타이핑하면 reference 인식 안 됨, 빈 문자열로 풀림)
+5. Settings → Networking → **Generate Domain** (target port `8080` 입력 — 8081 아님)
+
+Vercel 셋업 절차:
+1. GitHub OAuth로 가입 → repo Import
+2. **Root Directory를 `frontend`로 변경** (이게 핵심 — 안 바꾸면 vercel.json 못 찾음)
+3. Framework Preset: Vite 자동 감지
+4. Deploy
+
+Google OAuth Console:
+- 승인된 JavaScript 원본: `https://bookmark-library-iota.vercel.app`, `https://bookmark-library-production.up.railway.app`
+- 승인된 리디렉션 URI: 위 두 도메인 + `/login/oauth2/code/google`
+- 로컬 개발용 `http://localhost:5173/login/oauth2/code/google` 도 추가 (redirect-uri 고정 후 필요)
+
+#### B. OAuth 트러블슈팅 — `authorization_request_not_found` 픽스 (세션 쿠키 도메인 분리)
+
+**증상**: 로그인 시도 → Google 인증 통과 → "Login with OAuth 2.0 / Invalid credentials" Spring 기본 에러 페이지로 떨어짐. 도메인이 railway.app으로 이동.
+
+**진단 절차**:
+1. Spring 기본 동작이 OAuth 실패를 조용히 redirect로 처리해 로그에 안 박힘 → 진단용 `failureHandler` + DEBUG 로깅 추가해서 raw 에러 강제 출력
+2. 진짜 에러 코드: `authorization_request_not_found, description=null`
+3. curl로 검증: Spring이 만든 redirect_uri가 `https://bookmark-library-production.up.railway.app/login/oauth2/code/google` (Railway 도메인)
+
+**원인**: 사용자가 vercel.app/oauth2/authorization/google → Vercel rewrite → Railway → Spring이 자기 호스트로 redirect_uri 빌드 (Vercel이 X-Forwarded-Host를 안 넘기거나 Spring이 못 받음). Google 인증 후 브라우저는 railway.app으로 직접 이동 → JSESSIONID 쿠키는 vercel.app 도메인에 저장돼 있어서 함께 안 옴 → Spring 세션의 OAuth2AuthorizationRequest를 못 찾음.
+
+**처방**: application.yml의 `spring.security.oauth2.client.registration.google.redirect-uri`를 `${FRONTEND_URL:http://localhost:5173}/login/oauth2/code/google` 로 명시 고정 → Google이 vercel.app으로 redirect → Vercel rewrite로 Railway로 forward → 같은 도메인 안에서 세션 쿠키 일관 유지.
+
+**부수 변경**: SecurityConfig의 `failureHandler`는 운영 모니터링 + UX 개선(vercel.app/login?error로 redirect) 목적으로 유지. DEBUG 로깅은 진단 끝나고 제거.
+
+#### C. 모바일 OG fallback 배너
+
+배포 전 마지막 보강. 모바일만 쓰는 사용자(데스크톱 viewport에서만 OG 캡처되니까)도 SNS 미리보기 가능하게.
+
+- [OgFallbackBannerProvider](src/main/java/com/google/bookmark/service/OgFallbackBannerProvider.java) — startup 시 1200×630 placeholder PNG 생성·캐시. 배포 환경 한글 폰트 의존 회피용 텍스트-프리 디자인 (크림 배경 + 위/아래 월넛 밴드 + 가운데 5권 책 미니 일러스트). classpath에 `og-default-banner.png` 있으면 그게 우선 (drop-in 교체 가능)
+- [LibraryService.isPublicLibraryPresent](src/main/java/com/google/bookmark/service/LibraryService.java) — fallback 분기용 존재 체크
+- [OgImageController](src/main/java/com/google/bookmark/controller/OgImageController.java) 수정 — 캡처 없으면 도서관이 공개로 존재할 때만 fallback PNG, 비공개/없음만 404
+
+#### D. 모바일 UX — ghost-click + hover-only affordance 픽스
+
+**1. Modal ghost-click**: 모바일에서 Pixi 창고 chip 탭 → 모달 ~0.2초 보였다가 자동 닫힘. 원인은 Pixi `pointertap`이 touchend 시점에 동기적으로 발화 → Modal 즉시 마운트 → 백드롭이 손가락 위치에 깔림 → 브라우저가 합성 click을 그 백드롭에 dispatch → onClose. 처방: [Modal](frontend/src/components/ui/Modal.tsx)에 250ms open-time guard. Pixi 경유 모달 열기 모두에 일괄 적용.
+
+**2. hover-only invisible affordance**: 모바일은 hover 없으니 책 편집/삭제 버튼이 영영 안 보임. 처방: 3군데 `opacity-0 group-hover:opacity-100`을 `md:opacity-0 md:group-hover:opacity-100`으로 변경. 모바일은 항상 표시, 데스크톱은 hover시 — 반응형 디자인 정석.
+- BookRow 편집 버튼 (LibraryPage)
+- StorageDrawer 책 삭제(버리기) 버튼
+- LibrarianModal 검색결과 navigation hint
+
+#### E. 개인정보 국외 이전 조항 추가 (PIPA §28-8 대응)
+
+Google OAuth(인증) + Vercel/Railway 호스팅이 모두 미국에서 운영 → 회원 식별 정보 + 북마크 데이터가 해외로 이전. 한국 PIPA 제28조의8 명시 의무.
+
+[PrivacyPolicyPage](frontend/src/pages/PrivacyPolicyPage.tsx) 신규 6번 섹션 — 이전받는 자(Google LLC / Vercel Inc. / Railway Corp.), 국가, 일시·방법, 항목, 이용 목적, 보유 기간, 연락처. 거부권 + "거부 시 서비스 이용 불가능" 명시. 시행일 2026-05-04 → 2026-05-06 갱신. 기존 6~11번 섹션은 7~12번으로 이동.
+
+#### F. 책 색상 picker — 비전 강화 (캔버스성)
+
+지금까지 모든 책이 default `#3D2817` 다크월넛 단색이라 책장이 단조로움. 북극성 직격 부족.
+
+**구현 단계**:
+1. **신규 [BookCoverPicker](frontend/src/components/library/BookCoverPicker.tsx)** — 프리셋 8색(다크월넛/월넛/포레스트/버건디/오션/세이지/크림/차콜) + native `<input type="color">` (V1)
+2. 모바일 native picker가 첫 화면 검정으로 시작하는 사용자 혼란 → **react-colorful의 HexColorPicker로 교체** (V2). 항상 hue×saturation 영역 보임. "직접 선택" details/summary로 접어두기
+3. 모달들에 통합:
+   - AddBookModal: 책 추가 시 색상 선택 가능
+   - EditBookModal: 기존 책 색상 변경 (book.coverColor 초기값)
+4. **책장 위 책 미리보기** — 5권 미니 책장 (가운데가 사용자 선택 색, 양옆 walnut 톤 neutral) — Pixi 렌더링과 시각적 일관성
+5. **LRU 팔레트** ([utils/bookCoverPalette.ts](frontend/src/utils/bookCoverPalette.ts)) — localStorage `bookmark.recentBookColors`에 8슬롯
+   - 새 색 저장 시: 맨 앞 한 칸 밀어내고 맨 뒤 추가
+   - 이미 있는 색: 맨 뒤로만 이동 (LRU)
+   - `lastUsedColor()`로 AddBookModal default값 (가장 최근 색)
+   - DB 저장 X — per-browser preference라 localStorage가 적격
+
+백엔드는 이미 `Book.coverColor` + `^#[A-Fa-f0-9]{6}$` validation 있어서 프론트만 추가.
+
+#### G. 책 드래그 정렬 (수동 큐레이션)
+
+비전("꾸미고 자랑하고") 직격 — 자동 정렬 도구가 아니라 사용자가 책장 위 책 등 색깔/높이 보면서 직접 큐레이션. 자동 정렬 옵션은 의도적 제외.
+
+**백엔드**:
+- 신규 [PATCH /api/bookshelves/{id}/book-order](src/main/java/com/google/bookmark/controller/BookshelfController.java) — `orderedBookIds` 받아 shelf 내 책 position을 0..n-1로 일괄 재할당
+- [BookshelfService.reorderBooks](src/main/java/com/google/bookmark/service/BookshelfService.java) — 검증: 보낸 ID 집합이 shelf 현재 책 ID 집합과 정확히 일치해야 (stale client가 reorder로 책 누락시키지 못하게 409 반환)
+- [ReorderBooksRequest](src/main/java/com/google/bookmark/dto/ReorderBooksRequest.java)
+- `BookService.create`는 이미 `position=size`로 append중이라 변경 X
+- BookRepository는 이미 position 순 정렬 query
+
+**프론트엔드**:
+- `@dnd-kit/core` + `@dnd-kit/sortable` + `@dnd-kit/utilities` 도입 (gzip ~14KB)
+- ShelfCard가 DndContext + SortableContext로 감쌈
+- BookRow → SortableBookRow: **책 등 색 띠를 드래그 핸들로** (보이는 곳 = 잡는 곳)
+- PointerSensor `distance: 5` / TouchSensor `delay: 250, tolerance: 5` — 책 제목 클릭/탭은 네비게이션, 길게/움직이면 드래그
+- 낙관적 UI: arrayMove로 즉시 갱신, API 성공 시 부모 refetch, 실패 시 롤백
+- **rectSortingStrategy** 사용 (verticalListSortingStrategy 처음에 썼다가 grid-cols-2 환경에서 위치 계산 어긋나서 변경)
+- cross-shelf drag는 v1 제외 — EditBookModal의 책장 dropdown으로 처리
+
+#### H. UI 정리 — 톱니바퀴 + 로그인 페이지 + 카피
+
+- **설정 아이콘**: 기존 SVG가 가운데 원 + 8개 직선 스파이크 → 사용자에게 "해/별"로 보임. Lucide cog SVG path로 교체. 사각 톱니 + 가운데 hole, 16→18px / stroke 1.3→1.8
+- **LoginPage 보강** — 신규 방문자가 컨셉을 모르는 문제. "이렇게 작동해요" 3단계 섹션 추가:
+  1. 북마크 → 책 (4권 책 등 일러스트, 다양한 색)
+  2. 책장 → 평면도 (도어 + 좌우 책장 + 페데스탈 미니 floor plan SVG)
+  3. 도서관 → 공유 (카드 + 외부 화살표 SVG)
+  - max-w-md → max-w-2xl로 본문 넓힘. 인라인 SVG/CSS — 의존성 0
+- **카피 다듬기**: "URL 하나가 색깔 있는 책 한 권. 책 등 색을 직접 골라 꾸밉니다" → "URL 하나가 원하는 색깔의 책 한 권이 됩니다" (한 문장 압축, 능동형)
+
+#### I. ESLint react-hooks 7.x 신규 rule 처리
+
+처음 사전 점검 시 frontend lint에서 15 errors 떨어짐. 전부 새로 활성화된 `react-hooks/set-state-in-effect`, `react-hooks/refs` 룰. 표준 React 패턴(modal `useEffect` 리셋, prop→state sync, `propsRef.current = props`)을 너무 엄격하게 잡는 케이스라 코드 자체는 정상.
+
+처방: [eslint.config.js](frontend/eslint.config.js)에서 두 룰 `'off'` 처리. v2에서 일관된 점진 리팩토링. 부수로 안 쓰는 disable 주석 제거 + PublicLibraryPage useEffect deps에 slug 추가 (다른 도서관 네비게이션 시 refetch 누락되던 잠재 버그).
+
+### 해결한 버그 (이번 세션)
+
+1. **OAuth `authorization_request_not_found`** — Spring redirect_uri를 자기 호스트로 빌드해서 Google 콜백이 Vercel을 거치지 않고 Railway 직격, 세션 쿠키 도메인 분리. → application.yml에 redirect-uri 명시 고정.
+2. **Vercel 404 on /login** — vercel.json에 SPA catch-all rewrite 누락. → `/:path* → /index.html` 추가.
+3. **Vercel deploy webhook 한 번 누락** — push했는데 자동 빌드 안 떴음. → 빈 커밋 push로 강제 트리거.
+4. **모달 모바일 ghost-click** — Pixi pointertap → modal 즉시 마운트 → 백드롭에 합성 click 떨어져 즉시 닫힘. → 250ms open-time guard.
+5. **모바일에서 편집/삭제 버튼 invisible** — `opacity-0 group-hover:opacity-100`이 모바일 hover 없는 환경에 영영 invisible. → `md:` 브레이크포인트로 데스크톱만 hover 게이팅.
+6. **드래그 정렬이 grid에서 자리 안 바뀜** — verticalListSortingStrategy를 grid-cols-2 환경에 적용해 좌표 계산 어긋남. → rectSortingStrategy.
+7. **모바일 컬러피커 첫 화면 검정** — 모바일 Chrome native picker가 value 0(검정)으로 시작. → react-colorful 인라인 picker로 교체.
+8. **Railway DB_* 변수가 빈 문자열** — `${{Postgres.PGHOST}}` 손으로 타이핑 → reference 인식 안 됨. → Postgres 서비스가 안 만들어진 상태였고, 추가 후 자동완성 드롭다운으로 다시 박음.
+9. **Gradle test ClassNotFoundException** — Korean 경로(`포폴`) 인코딩 이슈로 test worker JVM이 컴파일된 BookmarkApplicationTests를 못 로드. 빌드 자체는 정상이라 `-x test`로 skip. (deploy 산출물엔 영향 없음, 차단 X)
+
+### 현재 상태
+
+#### 동작 확인됨 ✅ (운영 환경에서)
+- OAuth 로그인 (Vercel → Railway, 세션 쿠키 vercel.app 도메인 일관)
+- 책장 / 책 CRUD 풀 사이클
+- 책 색상 커스터마이징 + LRU 팔레트
+- 책 드래그 정렬 (데스크톱 + 모바일)
+- 평면도 Pixi 렌더링 (책 색깔 다양, 새 순서 즉시 반영)
+- /u/* 공개 도서관 — 사람 SPA, 봇 SSR HTML
+- OG fallback 배너 (모바일만 쓰는 사용자 대응)
+- 신고 시스템
+- 모바일 모달 (ghost-click 픽스)
+- 모바일 편집/삭제 버튼 affordance
+
+#### 미완성 / v1.5에서 보강할 것 ❌
+- **이름 + 도메인 변경** — "나만의 도서관" SEO 차별화 어려움. 후보 정해서 (책섬/북당/책뜸 등) 도메인 구입 후 Vercel/Railway에 연결 + 메타 태그 갱신
+- **본인 디자인 OG 배너 PNG** — 현재 placeholder (책 5권 + 월넛 밴드). `src/main/resources/og-default-banner.png` drop-in 교체
+- **Railway Trial → Hobby 전환** — 30일/$4.95 trial 만료 전. 꾸준히 운영 의도면 Hobby($5/월 + 사용량 포함)
+- **카카오톡/트위터 미리보기 실제 검증** — 봇 SSR HTML은 curl로 확인됐지만 실제 SNS 카드 모양 검증
+- **번들 사이즈 850KB / gzip 252KB** — 코드 스플리팅 안 됨. v2에서 dynamic import로 분리
+
+### 다음에 이어서 할 일
+
+1. **이름 + 도메인 결정** — Top 5 후보 (책섬/북당/꽂이/책담/책뜸) 검증:
+   - whois로 도메인 가능성 (`.com / .kr / .app / .io`)
+   - KIPRIS 상표 충돌
+   - SNS handle (x.com, instagram)
+   - 구글 검색 시 첫 페이지 비어있는지
+   - 1순위 추천: **책섬** (컨셉 "내 사적인 큐레이션 섬" 정확히 일치)
+2. 도메인 구입 후 Vercel/Railway에 커스텀 도메인 연결 + 메타 태그/copy 갱신
+3. Railway Hobby로 업그레이드 (trial 만료 전)
+4. (선택) 본인 디자인 OG 배너 PNG로 교체
+5. (선택) 코드 스플리팅 — Pixi/dnd-kit lazy load
+
+### 미해결 이슈 / 막힌 지점
+
+- **Vercel rewrite의 X-Forwarded-Host 동작 불확실** — 우회로 redirect-uri 명시 고정으로 해결했지만, 향후 Vercel이 X-Forwarded-Host 보내는 케이스로 바뀌면 또 점검 필요
+- **localStorage 컬러 팔레트는 디바이스별 독립** — PC와 폰에서 따로. "어디서나 같아야 한다"는 요구 나오면 User 엔티티에 컬럼 추가
+- **Gradle test 한글 경로 이슈 미해결** — 차단 요소 아니지만 `gradlew test` 못 돌림. 향후 CI 셋업 시 해결 필요 (영문 경로 worktree 사용 등)
+
+### 컨텍스트 / 주의사항
+
+#### 운영 환경 변수 (Railway)
+- `SPRING_PROFILES_ACTIVE=postgres`
+- `GOOGLE_CLIENT_ID/SECRET` — Google Console에서 직접 복붙 (IntelliJ env 경유 시 stale 가능)
+- `FRONTEND_URL=https://bookmark-library-iota.vercel.app`
+- `DB_HOST=${{Postgres.PGHOST}}`, `DB_PORT=${{Postgres.PGPORT}}`, `DB_NAME=${{Postgres.PGDATABASE}}`, `DB_USERNAME=${{Postgres.PGUSER}}`, `DB_PASSWORD=${{Postgres.PGPASSWORD}}`
+  - 자동완성 드롭다운으로 박아야 함. 손으로 적으면 평문이 됨.
+
+#### vercel.json의 `__RAILWAY_HOST__`
+도메인 변경 시 [frontend/vercel.json](frontend/vercel.json)의 `bookmark-library-production.up.railway.app`을 새 호스트로 일괄 치환.
+
+#### 로컬 개발 시 주의
+- redirect-uri를 `${FRONTEND_URL}/login/oauth2/code/google`로 고정해서 Google Console에 `http://localhost:5173/login/oauth2/code/google`도 등록되어 있어야 OAuth 동작
+- OAuth 환경변수가 없어도 spring boot 부트는 됨 (Spring Security 기본 동작)
+
+#### 이름 후보 (다음에 결정)
+
+심도 있게 추렸음. 검색 차별화 + 도메인 가능성 + 발음/입소문 + 컨셉 부합:
+- **책섬** (Chaekseom) — 1순위. "내 책의 섬" = 사적 큐레이션 공간, 평면도 시각과 일치
+- **북당** (Bookdang) — 2순위. 짧고 입에 붙음, bookdang.com 가능성
+- **책뜸** (Chaektteum) — 3순위. 슬로우라이프 정서 진함, 신조어 진입 장벽
+- **꽂이** / **책담** — 보조 후보
+
+검증 절차: whois + KIPRIS + SNS handle + 구글 검색 4단계로 깨끗한 후보 확정.
+
+#### 다른 PC에서 Claude 메모리 부트스트랩
+1. repo clone
+2. Claude Code 첫 메시지로:
+```
+이 프로젝트는 다른 PC에서 작업하다 넘어온 거야. 다음 순서로 컨텍스트를 잡아줘:
+1. HANDOFF.md를 읽어서 지금까지의 작업 내역과 다음 할 일 파악
+2. .claude/memory/*.md를 ~/.claude/projects/<이 프로젝트의 키>/memory/로 복사 (없으면 만들고, 있으면 머지)
+3. 환경 점검: data/ 폴더, .env, frontend/node_modules
+4. 운영 도메인 살아있는지 curl로 확인 (Railway: bookmark-library-production.up.railway.app, Vercel: bookmark-library-iota.vercel.app)
+5. "준비 완료, 다음에 할 일은 [HANDOFF.md 기준 요약]" 보고하고 대기
+```
+
+---
+
 ## [2026-05-04] 세 번째 큰 세션 — 모바일 평면도 정착 + OG 자동화 + 약관/방침 + 신고 시스템 + 보안 audit + PG 호환
 
 전 PC에서 worktree(`.claude/worktrees/happy-faraday-a38598`)로 작업, 큰 묶음마다 `main`에 `merge --no-ff`. v1.0 코드는 사실상 완성 — 남은 건 외부 시스템 셋업(배포/도메인/OAuth 콘솔/소셜 미리보기 검증).

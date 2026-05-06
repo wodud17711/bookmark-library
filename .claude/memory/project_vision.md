@@ -154,10 +154,80 @@ type: project
 
 Chrome 확장(직접 동기화), 갤러리/피드, 테마 마켓플레이스, 결제.
 
-## 현재 v1.0 미구현 / 진행 중 (배포 전 남은 것)
+## 운영 배포 완료 (v1.0 라이브)
 
-- **운영 환경 PostgreSQL 전환** — 코드 호환은 끝(`@JdbcTypeCode` 적용), 실제 PG 인스턴스 검증은 배포 시
-- **배포** (Vercel + Railway) — 외부 시스템 셋업
-- **카카오톡/트위터 미리보기 검증** — 배포 후 핸드폰에서
-- **Google OAuth Console 운영 callback URL 등록**
+- 백엔드: **Railway** + managed Postgres — `bookmark-library-production.up.railway.app`
+- 프론트엔드: **Vercel** — `bookmark-library-iota.vercel.app`
+- repo: github.com/wodud17711/bookmark-library
+- Railway는 Trial 단계 (만료 전 Hobby $5/월로 전환 예정)
+- Dockerfile multi-stage(temurin 17 jdk → jre, fontconfig 포함)
+- Vercel Root Directory = `frontend`. vercel.json rewrites가 backend로 forward (UA-conditional /u/* 지원)
+- Google OAuth Console에 vercel.app + railway.app prod callback URI 등록됨
+
+### OAuth 세션 쿠키 도메인 픽스 (배포 시 막혔던 핵심 이슈)
+
+배포 후 `authorization_request_not_found` 에러로 로그인 실패. 원인은 Spring이 redirect_uri를 자기 호스트(railway.app)로 빌드 → Google 콜백이 Vercel 안 거치고 Railway 직격 → JSESSIONID 쿠키는 vercel.app 도메인이라 같이 안 옴 → Spring 세션 못 찾음.
+
+처방: `application.yml`의 `spring.security.oauth2.client.registration.google.redirect-uri`를 `${FRONTEND_URL}/login/oauth2/code/google`로 명시 고정. 이로 인해 로컬 개발용 `http://localhost:5173/login/oauth2/code/google`도 Google Console에 등록 필요.
+
+### Vercel rewrites 운영 정책
+
+`/api`, `/og`, `/oauth2`, `/login/oauth2`, `/logout` 무조건 Railway forward. `/u/*`는 봇 UA만 Railway(SSR HTML), 사람은 SPA index.html. catch-all `/:path* → /index.html`로 react-router 라우트 처리.
+
+도메인 변경 시 `frontend/vercel.json`의 `bookmark-library-production.up.railway.app` 일괄 치환 필요.
+
+## 책 색상 customization (v1에서 구현됨, 비전 강화)
+
+- 백엔드 `Book.coverColor` 필드 (기본 `#3D2817` 다크월넛, regex `^#[A-Fa-f0-9]{6}$` validation)
+- 프론트엔드 [BookCoverPicker](../../frontend/src/components/library/BookCoverPicker.tsx) — 프리셋 8색(다크월넛/월넛/포레스트/버건디/오션/세이지/크림/차콜) + react-colorful 인라인 HexColorPicker (모바일 native picker가 첫 화면 검정으로 시작하는 혼란 회피)
+- 책장 위 미니 5권 책 미리보기 (가운데가 사용자 선택 색)
+- **LRU 팔레트** ([utils/bookCoverPalette.ts](../../frontend/src/utils/bookCoverPalette.ts)) — localStorage `bookmark.recentBookColors`에 8슬롯
+  - 새 색 저장 시: 맨 앞 한 칸 밀어내고 맨 뒤 추가
+  - 이미 있는 색: 맨 뒤로만 이동 (LRU)
+  - `lastUsedColor()`로 AddBookModal default
+  - DB 저장 X — per-browser preference
+
+## 책 드래그 정렬 (v1에서 구현됨, "꾸미기 캔버스" 핵심)
+
+자동 정렬 옵션은 의도적 제외 — 비전("꾸미고 자랑하고")은 사용자가 직접 큐레이션하는 캔버스성에 있음.
+
+- 백엔드 `Book.position` (이미 있던 필드) + 신규 `PATCH /api/bookshelves/{id}/book-order` 배치 재정렬. 보낸 ID 집합이 shelf 현재 책 ID 집합과 정확히 일치해야 함 (stale client 방어, 409)
+- 프론트엔드 `@dnd-kit/core` + `sortable` + `utilities`. **책 등 색 띠를 드래그 핸들로** (보이는 곳=잡는 곳)
+- PointerSensor `distance:5` / TouchSensor `delay:250` — 책 제목 클릭은 그대로 navigation, 길게/움직이면 drag
+- `rectSortingStrategy` (grid-cols-2 환경 호환). verticalListSortingStrategy 처음 쓰다가 위치 계산 어긋나서 변경
+- 낙관적 UI: arrayMove → API → 실패 시 롤백
+- cross-shelf drag는 v1 제외 — EditBookModal의 책장 dropdown으로 처리
+
+## 모바일 UX 픽스 (v1에서 구현됨)
+
+### Modal ghost-click guard
+
+Pixi `pointertap`이 touchend 시점에 동기적으로 모달 마운트 → 백드롭이 손가락 위치에 깔림 → 브라우저 합성 click이 그 백드롭에 떨어져 즉시 닫힘. → [Modal](../../frontend/src/components/ui/Modal.tsx)에 250ms open-time guard. Pixi 경유 모달 열기 모두에 일괄 적용.
+
+### hover-only affordance 모바일 노출
+
+`opacity-0 group-hover:opacity-100` 패턴이 모바일 hover 없는 환경에 invisible. → `md:` 브레이크포인트로 데스크톱만 hover 게이팅, 모바일 항상 표시. 적용:
+- BookRow 편집 버튼
+- StorageDrawer 책 삭제(버리기) 버튼
+- LibrarianModal 검색결과 navigation hint
+
+## 로그인 페이지 안내 (v1에서 구현됨)
+
+신규 방문자가 컨셉 모르는 문제. [LoginPage](../../frontend/src/pages/LoginPage.tsx)에 "이렇게 작동해요" 3단계 섹션 + 인라인 SVG 일러스트:
+1. 북마크 → 책 (4권 책 등 다양한 색)
+2. 책장 → 평면도 (도어 + 좌우 책장 + 페데스탈 미니 floor plan)
+3. 도서관 → 공유 (카드 + 외부 화살표)
+
+max-w-md → max-w-2xl로 본문 넓힘. 3컬럼은 sm: 이상.
+
+## 개인정보 국외 이전 조항 (v1에서 구현됨, PIPA §28-8)
+
+Google OAuth + Vercel + Railway 모두 미국 → 회원 데이터 해외 이전. PrivacyPolicyPage 6번 섹션 신설 (이전받는 자, 국가, 일시·방법, 항목, 이용 목적·보유 기간, 연락처). 거부권 + "거부 시 서비스 이용 불가능" 명시. 시행일 2026-05-06.
+
+## 현재 v1.5 검토 중 (포스트 운영 배포)
+
+- **이름 + 도메인 변경** — "나만의 도서관" SEO 차별화 어려움. 후보: **책섬**(1순위, "내 사적 큐레이션 섬" 컨셉 직격) / **북당**(2순위, 입에 붙음) / **책뜸** / **꽂이** / **책담**. 검증 절차: whois + KIPRIS + SNS handle + 구글 검색
+- **본인 디자인 OG 배너 PNG 교체** — 현재 placeholder는 5권 책 + 월넛 밴드 (텍스트-프리). `src/main/resources/og-default-banner.png` drop-in
+- **카카오톡/트위터 미리보기 실제 검증** — curl로는 SSR HTML 확인됐으나 SNS 카드 시각 검증 필요
+- **번들 사이즈 최적화** — 850KB(gzip 252KB), 코드 스플리팅 안 됨. v2 dynamic import
 - 결제 시스템 + 유료 테마 (v2)
