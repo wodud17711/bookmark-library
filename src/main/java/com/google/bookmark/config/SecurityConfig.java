@@ -3,17 +3,20 @@ package com.google.bookmark.config;
 import com.google.bookmark.security.CustomOAuth2UserService;
 import com.google.bookmark.security.CustomOidcUserService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 
 @Configuration
 @RequiredArgsConstructor
+@Slf4j
 public class SecurityConfig {
 
     private final CustomOAuth2UserService customOAuth2UserService;
@@ -56,6 +59,18 @@ public class SecurityConfig {
                 .successHandler((request, response, authentication) ->
                     response.sendRedirect(frontendUrl + "/")
                 )
+                .failureHandler((request, response, exception) -> {
+                    if (exception instanceof OAuth2AuthenticationException oaex) {
+                        log.error("[OAUTH FAIL] code={}, description={}, uri={}",
+                            oaex.getError().getErrorCode(),
+                            oaex.getError().getDescription(),
+                            oaex.getError().getUri(),
+                            oaex);
+                    } else {
+                        log.error("[OAUTH FAIL] {}", exception.getMessage(), exception);
+                    }
+                    response.sendRedirect(frontendUrl + "/login?error");
+                })
             )
             .logout(logout -> logout
                 .logoutSuccessUrl(frontendUrl + "/login")
