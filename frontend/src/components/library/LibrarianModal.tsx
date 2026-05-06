@@ -230,7 +230,7 @@ function BookRow({ hit, onClick }: { hit: BookHit; onClick: () => void }) {
             <span className="text-(--color-ink-faint) ml-1.5">· {hit.url}</span>
           </p>
         </div>
-        <span className="text-xs text-(--color-ink-faint) opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+        <span className="text-xs text-(--color-ink-faint) md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0">
           {hit.isCurrentLibrary ? '책장으로 →' : '도서관 이동 →'}
         </span>
       </button>
@@ -255,7 +255,7 @@ function StoredRow({ hit, onClick }: { hit: StoredHit; onClick: () => void }) {
             <span className="text-(--color-ink-faint) ml-1.5">· {hit.url}</span>
           </p>
         </div>
-        <span className="text-xs text-(--color-ink-faint) opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+        <span className="text-xs text-(--color-ink-faint) md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0">
           창고 열기 →
         </span>
       </button>
