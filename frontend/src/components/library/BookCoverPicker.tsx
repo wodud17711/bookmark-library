@@ -1,3 +1,5 @@
+import { HexColorPicker } from 'react-colorful'
+
 interface Props {
   value: string
   onChange: (hex: string) => void
@@ -47,24 +49,19 @@ export function BookCoverPicker({ value, onChange }: Props) {
           )
         })}
       </div>
-      <div className="flex items-center gap-2">
-        <label className="relative inline-flex items-center gap-2 cursor-pointer text-sm text-(--color-ink-muted) hover:text-(--color-walnut-500) transition-colors">
-          <input
-            type="color"
-            value={normalized}
-            onChange={(e) => onChange(e.target.value.toUpperCase())}
-            className="w-7 h-7 rounded-(--radius-xs) border border-(--color-line) cursor-pointer
-                       [&::-webkit-color-swatch]:rounded-[3px]
-                       [&::-webkit-color-swatch-wrapper]:p-0.5
-                       [&::-moz-color-swatch]:rounded-[3px]"
-            aria-label="직접 색상 선택"
-          />
+      <details className="group">
+        <summary className="cursor-pointer text-sm text-(--color-ink-muted) hover:text-(--color-walnut-500) transition-colors flex items-center gap-1.5 select-none list-none">
+          <span className="inline-block transition-transform group-open:rotate-90">▶</span>
           <span>직접 선택</span>
-        </label>
-        <span className="text-xs text-(--color-ink-faint) tabular-nums ml-auto">
-          {matchedPreset ? matchedPreset.name : normalized}
-        </span>
-      </div>
+          <span className="text-xs text-(--color-ink-faint) tabular-nums ml-auto">
+            {matchedPreset ? matchedPreset.name : normalized}
+          </span>
+        </summary>
+        <div className="mt-3 flex flex-col items-center gap-2">
+          <HexColorPicker color={normalized} onChange={(c) => onChange(c.toUpperCase())} />
+          <div className="text-xs text-(--color-ink-faint) tabular-nums">{normalized}</div>
+        </div>
+      </details>
     </div>
   )
 }
