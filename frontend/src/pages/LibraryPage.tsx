@@ -12,8 +12,8 @@ import {
 import {
   SortableContext,
   arrayMove,
+  rectSortingStrategy,
   useSortable,
-  verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { fetchMe, type Me } from '../api/auth'
@@ -863,7 +863,7 @@ function ShelfCard({
           <EmptyShelf onAddBook={onAddBook} />
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-            <SortableContext items={books.map((b) => b.id)} strategy={verticalListSortingStrategy}>
+            <SortableContext items={books.map((b) => b.id)} strategy={rectSortingStrategy}>
               <ul className="grid grid-cols-1 md:grid-cols-2 gap-1">
                 {books.map((book) => (
                   <SortableBookRow key={book.id} book={book} onEdit={() => onEditBook(book)} />
