@@ -9,7 +9,7 @@ import { Link } from 'react-router-dom'
  */
 const OPERATOR_NAME = 'wodud17711'
 const CONTACT_EMAIL = 'jaeyoung17711@gmail.com'
-const EFFECTIVE_DATE = '2026-05-04'
+const EFFECTIVE_DATE = '2026-05-06'
 
 export default function PrivacyPolicyPage() {
   return (
@@ -73,7 +73,52 @@ export default function PrivacyPolicyPage() {
         </p>
       </Section>
 
-      <Section title="6. 정보주체의 권리·의무 및 행사방법">
+      <Section title="6. 개인정보의 국외 이전">
+        <p>
+          서비스는 OAuth 인증 및 안정적 운영을 위해 다음과 같이 개인정보를 국외로 이전합니다.
+          정보주체는 본 국외 이전을 거부할 권리가 있으나, 거부 시 서비스 이용이 불가능할 수 있습니다.
+        </p>
+        <p>
+          <strong>(1) Google LLC — OAuth 인증</strong>
+        </p>
+        <ul>
+          <li>이전받는 국가: 미국 (United States)</li>
+          <li>이전 일시 및 방법: 로그인 시점에 OAuth 2.0 프로토콜(HTTPS)을 통하여 즉시 전송</li>
+          <li>이전 항목: Google 계정 고유 식별자(sub), 이메일, 이름, 프로필 사진 URL</li>
+          <li>이용 목적 및 보유 기간: 회원 인증 / Google의 개인정보처리방침에 따름</li>
+          <li>
+            연락처:{' '}
+            <a href="https://policies.google.com/privacy" target="_blank" rel="noreferrer">
+              policies.google.com/privacy
+            </a>
+          </li>
+        </ul>
+        <p>
+          <strong>
+            (2) Vercel Inc. (프론트엔드 호스팅 / CDN) 및 Railway Corp. (백엔드 + PostgreSQL DB 호스팅)
+          </strong>
+        </p>
+        <ul>
+          <li>이전받는 국가: 미국 (United States)</li>
+          <li>이전 일시 및 방법: 서비스 이용 시점에 HTTPS/TLS로 전송 및 저장</li>
+          <li>
+            이전 항목: 위 1항의 수집 항목 전체, 사용자가 등록한 북마크/도서관 데이터, 접속 IP, 세션 쿠키
+          </li>
+          <li>이용 목적 및 보유 기간: 서비스 운영 / 위 3항의 보유 기간에 따름</li>
+          <li>
+            연락처:{' '}
+            <a href="https://vercel.com/legal/privacy-policy" target="_blank" rel="noreferrer">
+              vercel.com/legal/privacy-policy
+            </a>
+            ,{' '}
+            <a href="https://railway.com/legal/privacy" target="_blank" rel="noreferrer">
+              railway.com/legal/privacy
+            </a>
+          </li>
+        </ul>
+      </Section>
+
+      <Section title="7. 정보주체의 권리·의무 및 행사방법">
         <p>정보주체는 언제든지 다음 권리를 행사할 수 있습니다.</p>
         <ul>
           <li>개인정보 열람 요구</li>
@@ -87,7 +132,7 @@ export default function PrivacyPolicyPage() {
         </p>
       </Section>
 
-      <Section title="7. 개인정보의 안전성 확보 조치">
+      <Section title="8. 개인정보의 안전성 확보 조치">
         <ul>
           <li>전송 구간 암호화(HTTPS/TLS)</li>
           <li>개인정보가 저장된 데이터베이스에 대한 접근 제한</li>
@@ -96,7 +141,7 @@ export default function PrivacyPolicyPage() {
         </ul>
       </Section>
 
-      <Section title="8. 개인정보 자동 수집 장치 (쿠키)">
+      <Section title="9. 개인정보 자동 수집 장치 (쿠키)">
         <p>
           서비스는 로그인 세션 유지를 위해 필수적인 쿠키(JSESSIONID 등)를 사용합니다. 분석/광고
           목적의 제3자 쿠키는 사용하지 않습니다. 브라우저 설정에서 쿠키 저장을 거부할 수 있으나
@@ -104,7 +149,7 @@ export default function PrivacyPolicyPage() {
         </p>
       </Section>
 
-      <Section title="9. 개인정보보호 책임자">
+      <Section title="10. 개인정보보호 책임자">
         <ul>
           <li>책임자: {OPERATOR_NAME}</li>
           <li>이메일: {CONTACT_EMAIL}</li>
@@ -115,7 +160,7 @@ export default function PrivacyPolicyPage() {
         </p>
       </Section>
 
-      <Section title="10. 권익침해 구제방법">
+      <Section title="11. 권익침해 구제방법">
         <ul>
           <li>개인정보분쟁조정위원회 (kopico.go.kr / 1833-6972)</li>
           <li>개인정보침해신고센터 (privacy.kisa.or.kr / 118)</li>
@@ -124,7 +169,7 @@ export default function PrivacyPolicyPage() {
         </ul>
       </Section>
 
-      <Section title="11. 처리방침의 변경">
+      <Section title="12. 처리방침의 변경">
         <p>
           본 처리방침은 시행일로부터 적용되며, 법령 및 방침에 따른 변경 내용의 추가, 삭제 및
           정정이 있는 경우에는 변경사항의 시행 7일 전부터 공지를 통하여 고지합니다.
