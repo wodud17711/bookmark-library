@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { IconButton } from './IconButton'
 
@@ -19,8 +19,11 @@ const SIZE: Record<NonNullable<ModalProps['size']>, string> = {
 }
 
 export function Modal({ open, onClose, title, children, footer, size = 'md' }: ModalProps) {
+  const openedAtRef = useRef(0)
+
   useEffect(() => {
     if (!open) return
+    openedAtRef.current = Date.now()
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
@@ -31,6 +34,16 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: M
       document.body.style.overflow = ''
     }
   }, [open, onClose])
+
+  // Mobile ghost-click guard: when a Pixi pointertap synchronously opens
+  // the modal, the browser dispatches a synthesized click on the freshly-
+  // mounted backdrop (still under the user's finger), instantly closing it.
+  // 250ms covers the typical 100-300ms synthesis delay; imperceptible on
+  // desktop because the backdrop is rarely tapped that fast intentionally.
+  const handleBackdropClick = () => {
+    if (Date.now() - openedAtRef.current < 250) return
+    onClose()
+  }
 
   if (!open) return null
 
@@ -43,7 +56,7 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: M
     >
       <div
         className="absolute inset-0 bg-(--color-surface-overlay) backdrop-blur-sm"
-        onClick={onClose}
+        onClick={handleBackdropClick}
         aria-hidden="true"
       />
       <div
