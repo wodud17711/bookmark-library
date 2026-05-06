@@ -20,6 +20,7 @@
     { "source": "/og/:path*", "destination": "https://bookmark-library-production.up.railway.app/og/:path*" },
     { "source": "/oauth2/:path*", "destination": "https://bookmark-library-production.up.railway.app/oauth2/:path*" },
     { "source": "/login/oauth2/:path*", "destination": "https://bookmark-library-production.up.railway.app/login/oauth2/:path*" },
-    { "source": "/logout", "destination": "https://bookmark-library-production.up.railway.app/logout" }
+    { "source": "/logout", "destination": "https://bookmark-library-production.up.railway.app/logout" },
+    { "source": "/:path*", "destination": "/index.html" }
   ]
 }
