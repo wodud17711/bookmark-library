@@ -25,6 +25,14 @@ spring:
           google:
             client-id: ${GOOGLE_CLIENT_ID}
             client-secret: ${GOOGLE_CLIENT_SECRET}
+            # Force the OAuth callback to come back through the frontend host so
+            # the browser keeps using the same JSESSIONID cookie throughout the
+            # flow. Without this Spring builds redirect_uri from its own host
+            # (Railway), the post-Google callback hits Railway directly, and the
+            # vercel.app-scoped session cookie isn't sent — Spring then 401s with
+            # "authorization_request_not_found". Must match a URI registered in
+            # Google Cloud Console for this client.
+            redirect-uri: ${FRONTEND_URL:http://localhost:5173}/login/oauth2/code/google
             scope:
               - email
               - profile
