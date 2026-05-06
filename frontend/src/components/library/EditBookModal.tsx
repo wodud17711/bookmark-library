@@ -8,6 +8,7 @@ import {
   type Bookshelf,
 } from '../../api/library'
 import { extractApiErrorMessage } from '../../api/client'
+import { BookCoverPicker } from './BookCoverPicker'
 
 interface Props {
   open: boolean
@@ -30,6 +31,7 @@ export function EditBookModal({
 }: Props) {
   const [title, setTitle] = useState('')
   const [siteName, setSiteName] = useState('')
+  const [coverColor, setCoverColor] = useState('#3D2817')
   const [isFavorite, setIsFavorite] = useState(false)
   const [shelfId, setShelfId] = useState<number | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -41,6 +43,7 @@ export function EditBookModal({
     if (book) {
       setTitle(book.title)
       setSiteName(book.siteName ?? '')
+      setCoverColor(book.coverColor)
       setIsFavorite(book.isFavorite)
       setShelfId(currentShelfId)
       setError(null)
@@ -72,6 +75,7 @@ export function EditBookModal({
       await updateBook(book.id, {
         title: title.trim(),
         siteName: siteName.trim(),
+        coverColor,
         isFavorite,
         ...(movingShelves && shelfId !== null ? { bookshelfId: shelfId } : {}),
       })
@@ -180,6 +184,8 @@ export function EditBookModal({
             onChange={(e) => setSiteName(e.target.value)}
             maxLength={128}
           />
+
+          <BookCoverPicker value={coverColor} onChange={setCoverColor} />
 
           <div>
             <label

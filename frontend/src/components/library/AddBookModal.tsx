@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react'
 import { Button, Modal, TextInput } from '../ui'
 import { createBook } from '../../api/library'
 import { extractApiErrorMessage } from '../../api/client'
+import { BookCoverPicker } from './BookCoverPicker'
+
+const DEFAULT_COVER = '#3D2817'
 
 interface Props {
   open: boolean
@@ -14,6 +17,7 @@ interface Props {
 export function AddBookModal({ open, bookshelfId, bookshelfTitle, onClose, onCreated }: Props) {
   const [url, setUrl] = useState('')
   const [title, setTitle] = useState('')
+  const [coverColor, setCoverColor] = useState(DEFAULT_COVER)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -21,6 +25,7 @@ export function AddBookModal({ open, bookshelfId, bookshelfTitle, onClose, onCre
     if (!open) {
       setUrl('')
       setTitle('')
+      setCoverColor(DEFAULT_COVER)
       setError(null)
     }
   }, [open])
@@ -47,6 +52,7 @@ export function AddBookModal({ open, bookshelfId, bookshelfTitle, onClose, onCre
         bookshelfId,
         url: normalizedUrl,
         title: title.trim() || undefined,
+        coverColor,
       })
       onCreated()
       onClose()
@@ -90,6 +96,7 @@ export function AddBookModal({ open, bookshelfId, bookshelfTitle, onClose, onCre
           placeholder="비워두면 사이트 이름이 자동으로 들어갑니다"
           maxLength={256}
         />
+        <BookCoverPicker value={coverColor} onChange={setCoverColor} />
       </form>
     </Modal>
   )
