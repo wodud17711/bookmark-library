@@ -1,0 +1,25 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {
+      "source": "/u/:path*",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(Twitterbot|facebookexternalhit|kakaotalk-scrap|Discordbot|Slackbot|LinkedInBot|Applebot|Googlebot|Bingbot|TelegramBot|WhatsApp|SkypeUriPreview|Iframely).*"
+        }
+      ],
+      "destination": "https://__RAILWAY_HOST__/u/:path*"
+    },
+    {
+      "source": "/u/:path*",
+      "destination": "/index.html"
+    },
+    { "source": "/api/:path*", "destination": "https://__RAILWAY_HOST__/api/:path*" },
+    { "source": "/og/:path*", "destination": "https://__RAILWAY_HOST__/og/:path*" },
+    { "source": "/oauth2/:path*", "destination": "https://__RAILWAY_HOST__/oauth2/:path*" },
+    { "source": "/login/oauth2/:path*", "destination": "https://__RAILWAY_HOST__/login/oauth2/:path*" },
+    { "source": "/logout", "destination": "https://__RAILWAY_HOST__/logout" }
+  ]
+}

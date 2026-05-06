@@ -31,7 +31,11 @@ spring:
               - openid
 
 server:
-  port: 8081
+  # Railway and most PaaSes inject $PORT; 8081 stays as the local default.
+  port: ${PORT:8081}
+  # Honor X-Forwarded-* from Railway's load balancer so OAuth2 callback URLs
+  # and absolute redirects use HTTPS / the public host, not the internal one.
+  forward-headers-strategy: framework
   # Surface ResponseStatusException reason text in the JSON error body so the
   # frontend can display "선택한 책장이 가득 찼습니다." instead of an opaque
   # "Request failed with status code 409". Kept on always — our backend only
@@ -43,6 +47,11 @@ server:
 app:
   frontend:
     url: ${FRONTEND_URL:http://localhost:5173}
+  spa:
+    # Path the SSR'd /u/{user}/{slug} HTML uses for its <script> bootstrap. In
+    # production set SPA_SCRIPT_URL to the hashed bundle path produced by
+    # `vite build`; the dev default points at Vite's source entry.
+    script-url: ${SPA_SCRIPT_URL:/src/main.tsx}
 
 ---
 spring:

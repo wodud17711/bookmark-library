@@ -1,0 +1,14 @@
+.gradle
+build
+data
+frontend
+node_modules
+.git
+.idea
+*.iml
+.claude
+.env
+.env.*
+HANDOFF.md
+README.md
+docker-compose.yml
