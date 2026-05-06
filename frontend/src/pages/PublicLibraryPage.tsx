@@ -35,7 +35,7 @@ export default function PublicLibraryPage() {
           setState({ status: 'error', message: extractApiErrorMessage(err, '로드 실패') })
         }
       })
-  }, [username])
+  }, [username, slug])
 
   if (state.status === 'loading') {
     return <CenteredMessage>도서관 문 여는 중…</CenteredMessage>

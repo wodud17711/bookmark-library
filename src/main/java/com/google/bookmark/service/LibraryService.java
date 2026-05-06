@@ -158,6 +158,15 @@ public class LibraryService {
             .filter(bytes -> bytes != null && bytes.length > 0);
     }
 
+    /** True if the library exists and is publicly accessible. Used by the OG
+     *  endpoint to distinguish "no snapshot yet, serve fallback" from
+     *  "doesn't exist or private, return 404". */
+    public boolean isPublicLibraryPresent(String username, String slug) {
+        return libraryRepository.findByUserUsernameAndSlug(username, slug)
+            .filter(Library::isPublic)
+            .isPresent();
+    }
+
     /**
      * OG metadata for the public-share HTML at {@code /u/{username}/{slug}}.
      * Returns empty if the library doesn't exist or is private — the caller
