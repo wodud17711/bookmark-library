@@ -1,6 +1,7 @@
 package com.google.bookmark.controller;
 
 import com.google.bookmark.service.LibraryService;
+import com.google.bookmark.service.OgFallbackBannerProvider;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
@@ -19,10 +20,16 @@ import java.time.Duration;
  * Slack) fetch this URL via the {@code <meta property="og:image">} tag in the
  * shared library page. No auth — must be reachable anonymously.
  *
- * <p>Bytes come from {@code Library.ogImage}, populated by the owner's
- * {@code POST /api/libraries/{id}/og-image} upload after the Pixi scene
- * draws. Returns 404 until the owner has visited their library on desktop
- * at least once.
+ * <p>Resolution order for any public library:
+ * <ol>
+ *   <li>{@code Library.ogImage} captured by the owner's browser
+ *       (POST {@code /api/libraries/{id}/og-image}) — the user's actual floor plan.</li>
+ *   <li>Static fallback banner from {@link OgFallbackBannerProvider} —
+ *       used until the owner visits on a desktop viewport at least once.
+ *       Mobile-only users effectively always see this.</li>
+ * </ol>
+ *
+ * <p>404 only when the library doesn't exist or is private (no leak).
  */
 @RestController
 @RequestMapping("/og")
@@ -30,6 +37,7 @@ import java.time.Duration;
 public class OgImageController {
 
     private final LibraryService libraryService;
+    private final OgFallbackBannerProvider fallbackBanner;
 
     @GetMapping(value = "/{username}/{slug}", produces = MediaType.IMAGE_PNG_VALUE)
     public ResponseEntity<byte[]> serveOgImage(
@@ -37,7 +45,12 @@ public class OgImageController {
         @PathVariable String slug
     ) {
         byte[] bytes = libraryService.getPublicOgImageBytes(username, slug)
-            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+            .orElseGet(() -> {
+                if (libraryService.isPublicLibraryPresent(username, slug)) {
+                    return fallbackBanner.getBytes();
+                }
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+            });
         return ResponseEntity.ok()
             .cacheControl(CacheControl.maxAge(Duration.ofMinutes(10)).cachePublic())
             .body(bytes);
