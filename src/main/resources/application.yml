@@ -53,6 +53,14 @@ app:
     # `vite build`; the dev default points at Vite's source entry.
     script-url: ${SPA_SCRIPT_URL:/src/main.tsx}
 
+# Temporary diagnostic: surface OAuth2 token-exchange failures (and the host
+# the redirect_uri was built with) in the Railway logs. Remove once login is
+# confirmed working in production.
+logging:
+  level:
+    org.springframework.security.oauth2: DEBUG
+    org.springframework.security.web.authentication: DEBUG
+
 ---
 spring:
   config:
