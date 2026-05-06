@@ -45,7 +45,7 @@ export default function LoginPage() {
             <Step
               illustration={<BookSpinesIllustration />}
               title="북마크 → 책"
-              body="URL 하나가 색깔 있는 책 한 권. 책 등 색을 직접 골라 꾸밉니다."
+              body="URL 하나가 원하는 색깔의 책 한 권이 됩니다."
             />
             <Step
               illustration={<FloorPlanIllustration />}
