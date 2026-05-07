@@ -224,10 +224,66 @@ max-w-md → max-w-2xl로 본문 넓힘. 3컬럼은 sm: 이상.
 
 Google OAuth + Vercel + Railway 모두 미국 → 회원 데이터 해외 이전. PrivacyPolicyPage 6번 섹션 신설 (이전받는 자, 국가, 일시·방법, 항목, 이용 목적·보유 기간, 연락처). 거부권 + "거부 시 서비스 이용 불가능" 명시. 시행일 2026-05-06.
 
-## 현재 v1.5 검토 중 (포스트 운영 배포)
+## 운영 안정화 완료 (2026-05-07)
+
+- **JVM heap 안정화**: Dockerfile에 `-Xmx400m -XX:MaxMetaspaceSize=128m` 명시. Railway 컨테이너 1GB. 사용량 ~700MB 안정. OOM 사이클 픽스됨
+- **세션 timeout 30일**: `server.servlet.session.timeout/cookie.max-age: 30d`. OAuth2 + Google SSO 조합으로 사실상 자동 로그인 효과
+- **개발 중 알림 배너**: DevNoticeBanner 컴포넌트, "오늘 하루 보지 않기" localStorage 저장
+- **모바일 UX 픽스**: Modal 250ms ghost-click guard, hover-only affordance를 md: 브레이크포인트로, 드래그 정렬 rectSortingStrategy
+
+## 도서관별 OG 캡처 제거 (2026-05-07)
+
+배경: `Library.ogImage byte[]` 컬럼이 도서관당 최대 1MB. 무료 PG 호스팅 한도 빠르게 채우는 주범. 모바일만 쓰는 사용자는 캡처 못 받아 디바이스 차별 발생.
+
+처방: 백엔드 `Library.ogImage` / `ogImageUpdatedAt` 필드 + 관련 service/controller/DTO 메소드 모두 삭제. 프론트엔드 캡처 useEffect + `uploadOgImage` API + Pixi `preserveDrawingBuffer` 옵션 제거. 코드 167줄 → 18줄 감소.
+
+DB 마이그레이션: Hibernate `ddl-auto=update`가 컬럼 drop 안 함. 운영 PG에 컬럼 그대로 남음 (앞으로 안 쓰임). 신규 PG 호스팅 마이그레이션 시 자연 정리.
+
+사용자당 DB 사이즈: 가벼운 사용자 ~10KB / 보통 ~50KB / 꽉 채운 한도 ~570KB. 무료 PG 500MB 한도 약 7,000명 수용.
+
+## 다음 세션 핵심 — 동적 OG 이미지 생성 (사양 확정)
+
+배경: 현재 모든 도서관이 동일한 fallback 배너 공유. SNS 공유 시 미리보기가 일반 그림 → 비전("꾸미고 자랑하고")의 SNS 확산 효과 부족.
+
+확정 사양:
+- 캐시: Caffeine, maxSize 500, expireAfterWrite 5분, Library/Book/Bookshelf 변경 시 evict
+- 렌더: 1200×630 PNG, 텍스트 없음 (한글 폰트 의존 회피), 책 spine 5-10개(실제 coverColor) + walnut 밴드 + 크림 배경
+- 캐시 헤더: `Cache-Control: public, max-age=600`
+- URL 버저닝: `?v={library.updatedAt-epoch}` (SNS 캐시 회피)
+- 메모리 영향: +28MB (캐시 25MB + Caffeine 라이브러리 ~3MB)
+- 작업 시간: 2-3시간
+
+구현 범위:
+- 백엔드: `OgFallbackBannerProvider` → `OgBannerRenderer`로 확장 + per-library 메소드 + Caffeine 캐시 + 변경 후크
+- `OgImageController`, `PublicLibraryHtmlController` 수정
+- 프론트엔드/DB: 변경 없음
+
+## 호스팅/수익화 전략 (결정 기록)
+
+**1인 개발자 수익화 트랙 관점**:
+- 호스팅 자체는 부수적 — Vercel/Railway 그대로 유지 (월 $5-10)
+- 진짜 중요: 사업자등록 + 통신판매업 신고 + 토스페이먼츠 통합 + 약관 보강 (결제 도입 시)
+- 한국 호스팅(NCP 등)은 매출 발생 후 회계 단순화 필요할 때
+- 도메인은 한국 회사(가비아/후이즈)에서 사도 OK
+
+**비용 추정**:
+- 1-100명: 월 $5-7
+- 1,000명: 월 $10-15
+- 10,000명: 월 $25-50
+- 데이터 모델 가벼워 인프라 비용 매우 낮음
+
+## 운영 리듬
+
+- **Frontend push**: Vercel 빌드 1-2분, 사용자 끊김 0 → 자주 push OK
+- **Backend push**: Railway Docker 빌드 5-7분 + 컨테이너 재시작으로 모든 세션 소멸 → batch push 권장
+- 백엔드 변경 누적 후 한 번에 배포로 사용자 마찰 최소화
+
+## 현재 v1.5 검토 중
 
 - **이름 + 도메인 변경** — "나만의 도서관" SEO 차별화 어려움. 후보: **책섬**(1순위, "내 사적 큐레이션 섬" 컨셉 직격) / **북당**(2순위, 입에 붙음) / **책뜸** / **꽂이** / **책담**. 검증 절차: whois + KIPRIS + SNS handle + 구글 검색
-- **본인 디자인 OG 배너 PNG 교체** — 현재 placeholder는 5권 책 + 월넛 밴드 (텍스트-프리). `src/main/resources/og-default-banner.png` drop-in
-- **카카오톡/트위터 미리보기 실제 검증** — curl로는 SSR HTML 확인됐으나 SNS 카드 시각 검증 필요
-- **번들 사이즈 최적화** — 850KB(gzip 252KB), 코드 스플리팅 안 됨. v2 dynamic import
+- **동적 OG 생성** ★ 우선순위 1 (사양 확정, 구현 대기)
+- **Railway Trial → Hobby 전환** (만료 직전)
+- 카카오톡/트위터 미리보기 실제 검증
+- 번들 사이즈 최적화 (현재 850KB / gzip 252KB)
 - 결제 시스템 + 유료 테마 (v2)
+- Spring Session + Redis (v2 — 컨테이너 재시작에도 세션 유지)
