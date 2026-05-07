@@ -12,12 +12,6 @@ spring:
     properties:
       hibernate:
         format_sql: true
-  servlet:
-    multipart:
-      # OG image PNGs from the Pixi canvas land around 200–400KB; cap at 2MB
-      # so a runaway upload can't fill the heap on the request thread.
-      max-file-size: 2MB
-      max-request-size: 2MB
   security:
     oauth2:
       client:

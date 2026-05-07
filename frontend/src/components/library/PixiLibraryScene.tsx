@@ -112,13 +112,6 @@ export function PixiLibraryScene(props: Props) {
         autoDensity: true,
         width: host.clientWidth || 800,
         height: host.clientHeight || 480,
-        // canvas.toBlob() returns black if WebGL clears the framebuffer between
-        // the last draw and the snapshot read; this keeps the framebuffer alive
-        // so the OG image capture path (LibraryPage) can read the rendered scene.
-        preserveDrawingBuffer: true,
-        // Force WebGL — some browsers default to WebGPU here, where
-        // preserveDrawingBuffer is a no-op and toBlob behavior is inconsistent.
-        preference: 'webgl',
       })
       if (cancelled) {
         app.destroy(true, { children: true })
