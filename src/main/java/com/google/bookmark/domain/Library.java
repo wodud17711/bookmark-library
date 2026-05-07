@@ -88,24 +88,6 @@ public class Library {
     @Column(name = "entrance_mood", nullable = false, length = 16)
     private EntranceMood entranceMood = EntranceMood.DAY;
 
-    /**
-     * Pre-rendered Open Graph image bytes (PNG). The frontend snapshots its own
-     * Pixi floor plan after draw completes and uploads it here, so social link
-     * previews can show the actual library without a headless renderer on the
-     * server. Nullable until the owner has visited their library on desktop.
-     *
-     * <p>{@code @JdbcTypeCode(LONGVARBINARY)} forces the type to map to
-     * {@code bytea} on PostgreSQL (avoiding Hibernate 6's default OID-based
-     * Large Object mapping for {@code @Lob byte[]} which leaks LOs and needs
-     * special transactional handling). On H2 it maps to VARBINARY/BLOB-equivalent.
-     */
-    @JdbcTypeCode(SqlTypes.LONGVARBINARY)
-    @Column(name = "og_image")
-    private byte[] ogImage;
-
-    @Column(name = "og_image_updated_at")
-    private Instant ogImageUpdatedAt;
-
     @OneToMany(mappedBy = "library", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @OrderBy("position ASC")
     private List<Bookshelf> bookshelves = new ArrayList<>();

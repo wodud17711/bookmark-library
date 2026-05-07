@@ -17,19 +17,15 @@ import java.time.Duration;
 
 /**
  * Public Open Graph image endpoint. Crawlers (Twitter, Discord, KakaoTalk,
- * Slack) fetch this URL via the {@code <meta property="og:image">} tag in the
- * shared library page. No auth — must be reachable anonymously.
+ * Slack) fetch this URL via the {@code <meta property="og:image">} tag in
+ * the shared library page. No auth — must be reachable anonymously.
  *
- * <p>Resolution order for any public library:
- * <ol>
- *   <li>{@code Library.ogImage} captured by the owner's browser
- *       (POST {@code /api/libraries/{id}/og-image}) — the user's actual floor plan.</li>
- *   <li>Static fallback banner from {@link OgFallbackBannerProvider} —
- *       used until the owner visits on a desktop viewport at least once.
- *       Mobile-only users effectively always see this.</li>
- * </ol>
- *
- * <p>404 only when the library doesn't exist or is private (no leak).
+ * <p>Always serves the static brand banner from
+ * {@link OgFallbackBannerProvider}. Per-library captured snapshots used to
+ * live in {@code Library.ogImage} but were removed to keep DB usage flat
+ * (and to put mobile-only owners on equal footing — there's no longer a
+ * "desktop visit captured your image, mobile didn't" gap). 404 only when
+ * the library doesn't exist or is private (no leak).
  */
 @RestController
 @RequestMapping("/og")
@@ -44,15 +40,11 @@ public class OgImageController {
         @PathVariable String username,
         @PathVariable String slug
     ) {
-        byte[] bytes = libraryService.getPublicOgImageBytes(username, slug)
-            .orElseGet(() -> {
-                if (libraryService.isPublicLibraryPresent(username, slug)) {
-                    return fallbackBanner.getBytes();
-                }
-                throw new ResponseStatusException(HttpStatus.NOT_FOUND);
-            });
+        if (!libraryService.isPublicLibraryPresent(username, slug)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        }
         return ResponseEntity.ok()
             .cacheControl(CacheControl.maxAge(Duration.ofMinutes(10)).cachePublic())
-            .body(bytes);
+            .body(fallbackBanner.getBytes());
     }
 }

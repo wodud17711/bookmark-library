@@ -11,6 +11,5 @@ public record LibraryOgMetadata(
     String ownerUsername,
     String ownerDisplayName,
     String slug,
-    int bookshelfCount,
-    boolean hasOgImage
+    int bookshelfCount
 ) {}
