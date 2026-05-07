@@ -18,6 +18,6 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends fontconfig \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app/build/libs/*.jar app.jar
-ENV JAVA_TOOL_OPTIONS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=70.0 -Djava.awt.headless=true"
+ENV JAVA_TOOL_OPTIONS="-XX:+UseContainerSupport -Xmx400m -XX:MaxMetaspaceSize=128m -Djava.awt.headless=true"
 EXPOSE 8081
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]
