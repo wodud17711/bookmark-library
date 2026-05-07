@@ -5,6 +5,7 @@ import { extractApiErrorMessage } from '../api/client'
 import { Button, Card } from '../components/ui'
 import { PixiLibraryScene } from '../components/library/PixiLibraryScene'
 import { ReportModal } from '../components/library/ReportModal'
+import { DevNoticeBanner } from '../components/library/DevNoticeBanner'
 
 type LoadState =
   | { status: 'loading' }
@@ -158,6 +159,7 @@ function PublicLibraryView({ library }: { library: Library }) {
       <PublicHeader library={library} />
 
       <main className="flex-1 max-w-6xl w-full mx-auto px-6 py-10 space-y-12">
+        <DevNoticeBanner />
         <PixiLibraryScene
           library={library}
           favoritesCount={favorites.length}
