@@ -38,6 +38,19 @@ server:
   # Honor X-Forwarded-* from Railway's load balancer so OAuth2 callback URLs
   # and absolute redirects use HTTPS / the public host, not the internal one.
   forward-headers-strategy: framework
+  servlet:
+    session:
+      # Tomcat default is 30 min — too short for users who leave the tab open
+      # all day. With OAuth2 backed by Google there's no password to remember;
+      # the only real risk of a long session is a stolen device, and we still
+      # invalidate on explicit logout. JSESSIONID cookie max-age must match so
+      # browsers persist it past tab/browser close. Secure flag is left to
+      # Spring's auto-inference (HTTPS prod via X-Forwarded-Proto=https,
+      # plain http on localhost) so local dev keeps working.
+      timeout: 30d
+      cookie:
+        max-age: 30d
+        http-only: true
   # Surface ResponseStatusException reason text in the JSON error body so the
   # frontend can display "선택한 책장이 가득 찼습니다." instead of an opaque
   # "Request failed with status code 409". Kept on always — our backend only
