@@ -1,5 +1,172 @@
 # HANDOFF
 
+## [2026-05-07] 다섯 번째 세션 — 운영 안정화 (OOM 픽스 + DB 슬림화 + 세션/UX 정리)
+
+배포 다음 날 바로 OOM 알림 폭주로 시작, 메모리 튜닝 → DB 슬림화 → UX 보강 순으로 진행. 또 호스팅/수익화 전략 토의도 같이 (결론: Vercel/Railway 유지). 다음 세션 핵심은 **동적 OG 생성 구현** — 사양 확정됨.
+
+### 오늘 한 일
+
+#### A. JVM 메모리 안정화 (OOM 사이클 픽스)
+
+배포 후 밤사이 OOM 알림 반복 → 컨테이너 재시작 사이클. 원인: `JAVA_TOOL_OPTIONS`에 heap 명시 없어서 JVM 기본 `MaxRAMPercentage=25%` 적용 → 컨테이너 RAM의 25%만 heap → Spring Boot 정상 운영(200~300MB heap 필요)에 부족 → GC 폭주 → OOM.
+
+처방 단계 (시행착오):
+1. `-XX:MaxRAMPercentage=70 + InitialRAMPercentage=40` → 작은 컨테이너에서 startup 즉시 commit으로 또 OOM
+2. `InitialRAMPercentage` 제거 → 그래도 컨테이너 1GB에서 사용량 973MB 도달, 헤드룸 부족
+3. 최종: **`-Xmx400m + -XX:MaxMetaspaceSize=128m`** → 안정화
+
+Railway 측 조치: 컨테이너 메모리 1GB로 상향 (Settings → Resources).
+
+결과: 사용량 ~700MB 안정화, 헤드룸 300MB+. OOM 사라짐.
+
+#### B. 도서관별 OG 캡처 완전 제거 (DB 슬림화 + 코드 단순화)
+
+**배경**: `Library.ogImage byte[]` 컬럼이 도서관당 최대 1MB. 100명 × 3도서관 ≈ 300MB로 무료 PG 호스팅(Supabase/Neon 500MB) 빠르게 채우는 주범. 또한 모바일만 쓰는 사용자는 캡처 못 받아 영영 fallback이라 디바이스 차별 발생. **수익화 트랙으로 가면서 무료 PG 호스팅 활용 가능성 + 사용자 평등성**이 진짜 OG 캡처 가치보다 큼.
+
+**정리 결과**:
+- 백엔드: `Library.ogImage` / `ogImageUpdatedAt` 필드, `LibraryService.updateOgImage / getPublicOgImageBytes`, `LibraryController POST /api/libraries/{id}/og-image`, `LibraryOgMetadata.hasOgImage` 모두 삭제. `OgImageController`는 도서관 공개로 존재하면 fallback 배너만 응답하는 단순 컨트롤러로 축소
+- 프론트엔드: `uploadOgImage` API, LibraryPage 1.5초 debounce + canvas.toBlob 캡처 useEffect, `sceneWrapRef`, PixiLibraryScene `preserveDrawingBuffer:true + preference:'webgl'` 옵션 모두 제거
+- application.yml: multipart 설정 제거 (OG 업로드 위해서였음)
+- 코드 라인: 167 → 18 (149줄 감소)
+
+**DB schema 처리**: Hibernate `ddl-auto=update`는 컬럼 drop 안 하니 운영 PG에 `og_image`, `og_image_updated_at` 컬럼 그대로 남음. 앞으로 안 쓰여 무관. 신규 PG 호스팅 마이그레이션 시 자연 정리.
+
+**사용자당 DB 사이즈** (꽉 채운 한도 사용자 기준): User 0.25KB + 3 Libraries 2.1KB + 24 Bookshelves 4.8KB + 720 Books 504KB ≈ **570KB**. 보통 사용자 평균 ~50KB. 무료 PG 500MB 한도까지 약 **7,000명 수용 가능**.
+
+#### C. 모바일 ghost-click + hover-only affordance 픽스
+
+(2026-05-06 세션과 같이 묶이지만 시점상 분리)
+
+- **Modal ghost-click**: Pixi `pointertap`이 touchend에 동기 발화 → 모달 마운트 → 백드롭이 손가락 위치에 깔림 → 합성 click이 그 백드롭에 떨어져 즉시 닫힘. → Modal에 250ms open-time guard
+- **hover-only invisible affordance**: 책 편집/삭제 버튼이 모바일에서 영영 안 보임. → `md:` 브레이크포인트로 데스크톱만 hover 게이팅, 모바일은 항상 표시
+- **드래그 정렬 grid 호환**: `verticalListSortingStrategy` → `rectSortingStrategy`로 변경 (md:grid-cols-2 환경 위치 계산)
+
+#### D. 개발 중 알림 배너
+
+서비스가 활발한 개발 단계라 가끔 끊김/에러 발생. 사용자가 영문 모르고 떠나지 않게 부드러운 안내 + 새로고침 권유.
+
+[DevNoticeBanner](frontend/src/components/library/DevNoticeBanner.tsx):
+- LibraryPage / PublicLibraryPage 상단에 카드 스타일
+- "닫기" — 그 세션만 hide
+- "오늘 하루 보지 않기" — localStorage(`bookmark.devNoticeDismissedOn`)에 YYYY-MM-DD 저장, 다음 날 자동 다시 표시
+- private mode/storage 거부 시에도 동작
+
+#### E. 세션 timeout 30분 → 30일
+
+자리 좀 비우면 30분 만에 자동 로그아웃되어 재로그인 마찰 큼. OAuth2가 Google에 위임돼 비번 재입력은 아니지만 클릭 한 번이라도 줄이는 게 좋음.
+
+application.yml:
+```yaml
+server.servlet.session.timeout: 30d
+server.servlet.session.cookie.max-age: 30d
+server.servlet.session.cookie.http-only: true
+# secure 플래그는 Spring 자동 추론에 맡김 (HTTPS 운영 vs http localhost)
+```
+
+한계: 컨테이너 재시작 시 in-memory 세션 모두 소실 → 재로그인 필요. 자주 재배포는 사용자 마찰. 해결은 v2의 Spring Session + Redis. 지금은 frontend는 자주 / backend는 batch push 패턴 운영.
+
+#### F. 호스팅/수익화 전략 토의 (코드 변경 없음, 결정 기록)
+
+**Railway Trial (~$4.95) vs Hobby ($5/월) vs 영구 무료 옵션 검토**:
+- 30일 Trial 만료 후 Hobby 전환 권장 ($5 + 사용량, 우리 케이스 총 $5-10/월)
+- Oracle Cloud Always Free DIY는 학습 가치 있지만 1인 수익화 트랙엔 시간 가치 안 맞음
+- Render free tier는 sleep 때문에 카톡 미리보기 깨짐 → 제외
+- Supabase free PG는 7일 idle pause로 우리 케이스 부적합
+
+**1인 개발자 수익화 관점 인프라 우선순위**:
+- 호스팅 자체는 부수적
+- 진짜 중요: 사업자등록 + 통신판매업 신고 + 토스페이먼츠 통합 + 약관 보강 (결제 도입 시)
+- 호스팅 옮기는 시점은 매출 발생 + 한국 회사 회계 단순화 필요할 때 (NCP 등)
+- 도메인은 가비아/후이즈에서 한국 회사로 사도 OK
+
+**향후 1인 개발자 비용 추정**:
+- 1-100명 사용자: 월 $5-7
+- 1,000명: 월 $10-15
+- 10,000명: 월 $25-50
+- 데이터 모델 가벼워 인프라 비용 매우 낮음
+
+### 해결한 버그 / 이슈
+
+1. **OOM 사이클**: -Xmx400m + Railway 컨테이너 1GB로 픽스
+2. **Vercel webhook 누락**: 빈 commit push로 강제 트리거 (이전 세션과 같은 패턴)
+3. **모바일 native color picker 첫 화면 검정**: react-colorful로 교체 (이전 세션 마무리)
+
+### 현재 상태
+
+#### 동작 확인됨 ✅
+- 운영 배포 정상 (Railway + Vercel)
+- OAuth 로그인 + 30일 세션
+- OG fallback 배너 (모든 도서관 동일, 임시 placeholder)
+- 책 색상 picker + LRU 팔레트 + 책장 미리보기
+- 책 드래그 정렬 (rectSortingStrategy)
+- 개발 중 알림 배너
+- 모바일 UX (ghost-click + hover affordance)
+- 메모리 안정 (~700MB / 1024MB, 헤드룸 300MB+)
+
+#### 다음 세션 핵심 (사양 확정)
+
+**1. 동적 OG 이미지 생성 — 미리보기 진짜 작동시키기**
+
+배경: 현재 모든 도서관이 동일한 fallback 배너 공유. SNS에서 본인 도서관 공유해도 일반 그림. 비전("꾸미고 자랑")의 SNS 확산 채널 효과 부족.
+
+확정 사양:
+| 결정 | 값 |
+|---|---|
+| 캐시 라이브러리 | Caffeine |
+| 캐시 maxSize | 500개 (LRU) |
+| 캐시 expireAfterWrite | 5분 |
+| 캐시 invalidate trigger | Library/Book/Bookshelf 변경 시 명시적 evict |
+| 렌더 해상도 | 1200×630 |
+| 폰트 | 사용 안 함 (텍스트 free) — Linux 컨테이너 한글 폰트 의존 회피 |
+| 그림 요소 | 책 spine 5-10개 (실제 coverColor) + 위/아래 walnut 밴드 + 크림 배경 |
+| Cache-Control | public, max-age=600 (10분) |
+| OG URL versioning | `?v={library.updatedAt-epoch}` (SNS 캐시 회피) |
+
+구현 범위:
+- 백엔드: `OgFallbackBannerProvider` → `OgBannerRenderer`로 확장 + per-library renderForLibrary(library) 메소드 + Caffeine 캐시 + Library/Book/Bookshelf 변경 시 cache evict 후크
+- `OgImageController` 수정: 도서관 데이터 받아 renderer로 위임
+- `PublicLibraryHtmlController`: og:image URL에 `?v={ts}` 붙임
+- 프론트엔드: 변경 없음 (메타 인젝션 코드는 그대로)
+- DB: 변경 없음
+- 메모리 영향: +28MB (캐시 25MB + Caffeine 라이브러리 ~3MB)
+
+작업 시간: 2-3시간
+
+### 다음에 이어서 할 일
+
+1. **동적 OG 이미지 생성 구현** ★ 우선순위 1 (위 사양대로)
+2. 이름 + 도메인 결정 (후보: 책섬/북당/책뜸 등) + Vercel/Railway 커스텀 도메인 연결
+3. (선택) 본인 디자인 fallback 배너 PNG로 교체 — 또는 동적 OG로 사실상 대체됨
+4. (선택) Railway Hobby 플랜 전환 (Trial 만료 직전)
+5. (먼 v2) Spring Session + Redis로 컨테이너 재시작에도 세션 유지
+
+### 컨텍스트 / 주의사항
+
+#### Railway 컨테이너 메모리 = 1GB로 상향됨
+초기 default보다 큼. JVM `-Xmx400m`와 조합하여 헤드룸 확보. 비용 약간 증가하나 안정성 우선.
+
+#### Dockerfile JVM 옵션 최종형
+```
+ENV JAVA_TOOL_OPTIONS="-XX:+UseContainerSupport -Xmx400m -XX:MaxMetaspaceSize=128m -Djava.awt.headless=true"
+```
+
+#### 운영 배포 후 마찰 패턴
+- 백엔드 push → Railway Docker 빌드 (5-7분) + 컨테이너 재시작 → 모든 세션 소멸 → 재로그인 필요
+- 프론트엔드 push → Vercel 빌드 (1-2분), 백엔드 무관 → 사용자 끊김 0
+- **운영 리듬**: frontend는 자주 push, backend는 batch push로 마찰 최소화
+
+#### 로컬 개발 환경 셋업 (다른 PC에서)
+1. `git pull`
+2. Claude Code에 부트스트랩 프롬프트 (HANDOFF.md 마지막 섹션) 붙여넣기 — 메모리 자동 복사
+3. `.env.example` → `.env` 복사 + `GOOGLE_CLIENT_ID/SECRET` 채움
+4. `cd frontend && npm install`
+5. IntelliJ Run Configuration에 환경변수 박기
+6. Google Console에 `http://localhost:5173/login/oauth2/code/google` 등록 확인
+
+총 5-7분이면 새 PC도 작업 가능 상태.
+
+---
+
 ## [2026-05-06] 네 번째 큰 세션 — 운영 배포 + 모바일 UX + "꾸미기 캔버스" 강화 (책 색상 + 드래그 정렬 + 로그인 안내)
 
 이번 세션은 두 흐름. **(1) 실제 운영 배포** Railway/Vercel/Google OAuth Console 셋업 + OAuth 세션 쿠키 도메인 이슈 픽스 → 라이브. **(2) 비전("꾸미고 자랑하고 싶어지는 캔버스") 강화** 책 색상 picker + 드래그 정렬 + 로그인 페이지 안내. 친구가 실제 사용 시작했고 모바일 UX 이슈 두 건 픽스 (ghost-click + hover-only affordance).
