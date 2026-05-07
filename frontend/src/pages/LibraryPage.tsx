@@ -37,6 +37,7 @@ import { PixiLibraryScene } from '../components/library/PixiLibraryScene'
 import { LibrarySwitcher } from '../components/library/LibrarySwitcher'
 import { CreateLibraryModal } from '../components/library/CreateLibraryModal'
 import { LibrarianModal } from '../components/library/LibrarianModal'
+import { DevNoticeBanner } from '../components/library/DevNoticeBanner'
 import { switchCurrentLibrary } from '../api/library'
 
 export default function LibraryPage() {
@@ -175,6 +176,7 @@ export default function LibraryPage() {
       />
 
       <main className="flex-1 max-w-6xl w-full mx-auto px-6 py-10 space-y-10">
+        <DevNoticeBanner />
         <div>
           <PixiLibraryScene
             library={library}
