@@ -23,6 +23,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -45,32 +46,64 @@ public class BookService {
             );
         }
 
+        User owner = shelf.getLibrary().getUser();
+        String url = req.url().trim();
+
         Book book = new Book();
         book.setBookshelf(shelf);
-        book.setUrl(req.url().trim());
-        book.setTitle(deriveTitle(req.title(), req.url()));
+        book.setUrl(url);
         book.setSiteName(req.siteName());
         if (req.coverColor() != null) book.setCoverColor(req.coverColor());
         if (req.titleColor() != null) book.setTitleColor(req.titleColor());
         book.setPosition(shelf.getBooks().size());
 
+        // Title resolution. When the user supplied a title we use it verbatim
+        // and skip metadata/AI entirely. Otherwise we fetch the page once and
+        // either (a) use its <title> if it's already a clean brand-style label,
+        // or (b) ask AI to produce a smart "사이트명 - 한 줄 요약" style title.
+        // Tags/summary that AI returns alongside are still stored for future
+        // search/filter even though the row UI no longer surfaces them.
+        String suppliedTitle = req.title();
+        if (suppliedTitle != null && !suppliedTitle.isBlank()) {
+            book.setTitle(suppliedTitle.trim());
+        } else {
+            resolveTitleAndAnnotate(book, owner, url);
+        }
+
         shelf.getBooks().add(book);
         bookRepository.flush();
-
-        // Best-effort AI annotation. Anything that fails here (fetch timeout,
-        // Gemini quota, parse error) is swallowed by AiService and returns
-        // empty — book creation must never depend on the model being up.
-        annotateWithAi(book, shelf.getLibrary().getUser());
-
         return toResponse(book);
     }
 
-    private void annotateWithAi(Book book, User owner) {
-        if (!owner.isAiFeaturesEnabled()) return;
-        WebPageContent content = metadataFetcher.fetch(book.getUrl())
-            .orElse(new WebPageContent(book.getUrl(), book.getTitle(), book.getSiteName(), null));
+    private void resolveTitleAndAnnotate(Book book, User owner, String url) {
+        Optional<WebPageContent> metadataOpt = metadataFetcher.fetch(url);
+        WebPageContent content = metadataOpt
+            .orElse(new WebPageContent(url, null, book.getSiteName(), null));
+        String fetchedTitle = content.title();
+
+        // Clean brand-style page titles (short, no chained separators) are
+        // already what we want — skip the AI call and save quota.
+        if (isCleanBrandTitle(fetchedTitle)) {
+            book.setTitle(fetchedTitle.trim());
+            return;
+        }
+
+        if (!owner.isAiFeaturesEnabled()) {
+            book.setTitle(fallbackTitle(fetchedTitle, url));
+            return;
+        }
+
+        // Best-effort AI annotation. Failures (fetch timeout, Gemini quota,
+        // parse error) come back as AiAnalysis.empty() so we still get a title.
         AiAnalysis analysis = aiService.analyze(content, owner.getId());
-        if (analysis.isEmpty()) return;
+        String smart = analysis.smartTitle();
+        if (smart != null && !smart.isBlank()) {
+            String trimmed = smart.trim();
+            book.setTitle(trimmed.length() > 256 ? trimmed.substring(0, 256) : trimmed);
+        } else {
+            book.setTitle(fallbackTitle(fetchedTitle, url));
+        }
+
         if (analysis.tags() != null && !analysis.tags().isEmpty()) {
             book.setTags(new ArrayList<>(analysis.tags()));
         }
@@ -79,6 +112,30 @@ public class BookService {
             // still get a partial summary if the model overshoots its budget.
             String summary = analysis.summary();
             book.setAiSummary(summary.length() > 512 ? summary.substring(0, 512) : summary);
+        }
+    }
+
+    /**
+     * Heuristic: a page <title> is "clean enough" to use as-is when it's short
+     * (≤ 30 chars) and doesn't carry the "site | category | post" separator
+     * marks that signal a noisy chained title needing AI cleanup.
+     */
+    private static boolean isCleanBrandTitle(String t) {
+        if (t == null || t.isBlank()) return false;
+        String trimmed = t.trim();
+        if (trimmed.length() > 30) return false;
+        return !trimmed.contains(" - ") && !trimmed.contains(" | ")
+            && !trimmed.contains(" – ") && !trimmed.contains(" — ")
+            && !trimmed.contains(" :: ") && !trimmed.contains(" · ");
+    }
+
+    private static String fallbackTitle(String fetchedTitle, String url) {
+        if (fetchedTitle != null && !fetchedTitle.isBlank()) return fetchedTitle.trim();
+        try {
+            String host = new URI(url).getHost();
+            return host != null ? host : url;
+        } catch (URISyntaxException e) {
+            return url;
         }
     }
 
@@ -143,20 +200,6 @@ public class BookService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Bookshelf not found");
         }
         return shelf;
-    }
-
-    /** Falls back to the URL host when the user didn't supply a title. */
-    private String deriveTitle(String supplied, String url) {
-        if (supplied != null && !supplied.isBlank()) {
-            return supplied.trim();
-        }
-        try {
-            URI uri = new URI(url);
-            String host = uri.getHost();
-            return host != null ? host : url;
-        } catch (URISyntaxException e) {
-            return url;
-        }
     }
 
     private BookResponse toResponse(Book book) {

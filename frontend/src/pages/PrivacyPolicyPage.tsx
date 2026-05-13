@@ -68,7 +68,7 @@ export default function PrivacyPolicyPage() {
           </li>
           <li>
             <strong>Google LLC (Gemini API)</strong> — 사용자가 등록한 북마크 URL의 제목 및
-            본문 일부를 입력받아 AI 자동 태그·요약 생성. 이용자는 설정 메뉴에서 본 기능을
+            본문 일부를 입력받아 AI 자동 제목·태그·요약 생성. 이용자는 설정 메뉴에서 본 기능을
             언제든지 비활성화할 수 있으며, 비활성화 시 신규 북마크에 대한 AI 처리가 중지됩니다.
           </li>
         </ul>
@@ -122,7 +122,7 @@ export default function PrivacyPolicyPage() {
           </li>
         </ul>
         <p>
-          <strong>(3) Google LLC — Gemini API (생성형 AI 자동 태그·요약)</strong>
+          <strong>(3) Google LLC — Gemini API (생성형 AI 자동 제목·태그·요약)</strong>
         </p>
         <ul>
           <li>이전받는 국가: 미국 (United States)</li>
@@ -135,12 +135,12 @@ export default function PrivacyPolicyPage() {
             발췌)
           </li>
           <li>
-            이용 목적 및 보유 기간: 자동 태그·요약 생성 / Google Gemini API 데이터 처리
-            정책에 따름
+            이용 목적 및 보유 기간: 자동 제목·태그·요약 생성 / Google Gemini API 데이터
+            처리 정책에 따름
           </li>
           <li>
-            거부 권한: 설정 메뉴의 "AI 자동 분류" 토글로 언제든 비활성화 가능. 비활성화 시
-            기존 책의 태그·요약은 그대로 유지되나 신규 책은 AI 처리 없이 저장됨.
+            거부 권한: 설정 메뉴의 "AI 자동 제목" 토글로 언제든 비활성화 가능. 비활성화 시
+            기존 책의 제목·태그·요약은 그대로 유지되나 신규 책은 AI 처리 없이 저장됨.
           </li>
           <li>
             연락처:{' '}

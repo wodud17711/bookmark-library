@@ -116,13 +116,16 @@ public class GeminiAiService implements AiService {
         ObjectNode schema = genConfig.putObject("responseSchema");
         schema.put("type", "OBJECT");
         ObjectNode properties = schema.putObject("properties");
+        properties.putObject("smartTitle").put("type", "STRING");
         ObjectNode tagsProp = properties.putObject("tags");
         tagsProp.put("type", "ARRAY");
         tagsProp.putObject("items").put("type", "STRING");
         tagsProp.put("minItems", 1);
         tagsProp.put("maxItems", 4);
         properties.putObject("summary").put("type", "STRING");
-        schema.putArray("required").add("tags").add("summary");
+        // smartTitle is the load-bearing field for book.title now; tags/summary
+        // are kept for future search/filter (not currently shown in the UI).
+        schema.putArray("required").add("smartTitle").add("tags").add("summary");
 
         return mapper.writeValueAsString(root);
     }
@@ -130,14 +133,26 @@ public class GeminiAiService implements AiService {
     private String systemPrompt() {
         return """
             너는 북마크 도서관 서비스의 큐레이터다. 사용자가 저장한 웹 페이지의 \
-            메타데이터를 받아 한국어 태그와 짧은 요약을 만든다.
+            메타데이터를 받아 책장에 꽂힐 "책 제목"을 만든다. 동시에 검색용 태그와 \
+            한 줄 요약도 함께 만든다.
 
-            규칙:
-            - 태그는 2~4개. 한국어 명사 또는 짧은 명사구 (예: "개발", "AI 도구", "디자인 영감"). \
-              영어 고유명사는 그대로 사용 가능 (예: "React").
-            - 요약은 1~2문장, 100자 이내, 한국어. 페이지가 무엇을 다루는지 한눈에 알 수 있게.
-            - 페이지 내용에 없는 정보를 추측하지 말 것. 정보가 부족하면 제목/사이트명만으로 일반화.
-            - 광고성 문구, 이모지, "이 페이지는", "이 글은" 같은 군더더기 표현 금지.
+            가장 중요: smartTitle 규칙
+            - 길이는 60자 이내. 책장 한 줄에 들어갈 짧은 제목.
+            - 페이지가 잘 알려진 서비스/사이트 홈이면 서비스 이름만 써라. \
+              예: "Google", "네이버", "GitHub", "Notion".
+            - 페이지가 게시판/블로그/뉴스 글이면 "사이트명 - 글 내용 한 줄 요약" \
+              형식으로 만들어라. 예: "벨로그 - React 19 컴파일러 정리", \
+              "NamuWiki - 조선왕조 계보", "DC인사이드 - 자취 식단 추천글".
+            - 사이트명을 모르면 도메인 호스트(예: "semcalc.com")를 사용해도 된다.
+            - 따옴표, 이모지, 말줄임표 금지. 한국어와 영어/숫자만 사용.
+
+            태그/요약 규칙 (검색용 — UI에는 노출 안 됨)
+            - 태그는 2~4개. 한국어 명사 또는 짧은 명사구. 영어 고유명사 OK.
+            - 요약은 1~2문장, 100자 이내, 한국어. "이 페이지는", "이 글은" 같은 \
+              군더더기 금지.
+
+            공통: 페이지 내용에 없는 정보를 추측하지 말 것. 정보가 부족하면 \
+            제목/사이트명/도메인만으로 일반화한다.
             """;
     }
 
@@ -168,6 +183,7 @@ public class GeminiAiService implements AiService {
             if (jsonText.isBlank()) return AiAnalysis.empty();
 
             JsonNode payload = mapper.readTree(jsonText);
+            String smartTitle = payload.path("smartTitle").asString("").trim();
             List<String> tags = new ArrayList<>();
             JsonNode tagsNode = payload.path("tags");
             if (tagsNode.isArray()) {
@@ -177,7 +193,11 @@ public class GeminiAiService implements AiService {
                 });
             }
             String summary = payload.path("summary").asString("").trim();
-            return new AiAnalysis(tags, summary.isBlank() ? null : summary);
+            return new AiAnalysis(
+                smartTitle.isBlank() ? null : smartTitle,
+                tags,
+                summary.isBlank() ? null : summary
+            );
         } catch (Exception e) {
             log.warn("Failed to parse Gemini response: {}", e.getMessage());
             return AiAnalysis.empty();

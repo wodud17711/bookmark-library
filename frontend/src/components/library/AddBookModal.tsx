@@ -64,19 +64,22 @@ export function AddBookModal({
       return
     }
 
+    const trimmedTitle = title.trim()
     setSubmitting(true)
     try {
       const book = await createBook({
         bookshelfId,
         url: normalizedUrl,
-        title: title.trim() || undefined,
+        title: trimmedTitle || undefined,
         coverColor,
       })
       recordColor(coverColor)
       onCreated()
-      const hasAiResult = (book.tags?.length ?? 0) > 0 || Boolean(book.aiSummary)
-      if (aiEnabled && hasAiResult) {
-        // Hold the modal open with the result panel; user dismisses manually.
+      // The AI value-add now lives in book.title itself when the user left
+      // the title blank — show it back to them so they know AI did something.
+      // If they typed their own title, AI didn't run (or didn't override) and
+      // there's nothing new to surface.
+      if (aiEnabled && !trimmedTitle) {
         setCreatedBook(book)
       } else {
         onClose()
@@ -93,7 +96,7 @@ export function AddBookModal({
       <Modal
         open={open}
         onClose={onClose}
-        title="AI 자동 분류 완료"
+        title="AI가 책을 꽂아줬어요"
         footer={
           <Button type="button" onClick={onClose}>
             확인
@@ -116,7 +119,11 @@ export function AddBookModal({
             취소
           </Button>
           <Button type="submit" form="add-book-form" disabled={submitting}>
-            {submitting ? (aiEnabled ? 'AI가 분류 중…' : '추가 중...') : '책장에 꽂기'}
+            {submitting
+              ? aiEnabled && !title.trim()
+                ? 'AI가 제목 짓는 중…'
+                : '추가 중...'
+              : '책장에 꽂기'}
           </Button>
         </>
       }
@@ -135,13 +142,13 @@ export function AddBookModal({
           label="제목 (선택)"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="비워두면 사이트 이름이 자동으로 들어갑니다"
+          placeholder={aiEnabled ? '비워두면 AI가 제목을 골라드려요' : '비워두면 사이트 이름이 자동으로 들어갑니다'}
           maxLength={256}
         />
         <BookCoverPicker value={coverColor} onChange={setCoverColor} />
-        {aiEnabled && (
+        {aiEnabled && !title.trim() && (
           <p className="text-xs text-(--color-ink-faint) leading-relaxed">
-            🤖 책장에 꽂는 동안 AI가 페이지를 읽고 태그·요약을 자동으로 달아드려요.
+            🤖 제목을 비우면 AI가 페이지를 읽고 짧은 제목을 골라드려요.
             (설정에서 끌 수 있어요)
           </p>
         )}
@@ -152,38 +159,16 @@ export function AddBookModal({
 
 function AiResultPanel({ book }: { book: Book }) {
   return (
-    <div className="space-y-4">
-      <div>
-        <p className="text-sm font-medium text-(--color-ink-strong) mb-1">📕 {book.title}</p>
-        {book.siteName && (
-          <p className="text-xs text-(--color-ink-faint)">{book.siteName}</p>
-        )}
-      </div>
-      {book.tags && book.tags.length > 0 && (
-        <div>
-          <p className="text-xs text-(--color-ink-muted) mb-2">자동 태그</p>
-          <div className="flex flex-wrap gap-1.5">
-            {book.tags.map((tag) => (
-              <span
-                key={tag}
-                className="inline-flex items-center px-2.5 py-1 rounded-full text-xs
-                           bg-(--color-walnut-100) text-(--color-walnut-700)
-                           border border-(--color-walnut-300)/60"
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-      {book.aiSummary && (
-        <div>
-          <p className="text-xs text-(--color-ink-muted) mb-2">한 줄 요약</p>
-          <p className="text-sm text-(--color-ink) leading-relaxed bg-(--color-surface-sunken) rounded-md px-3 py-2.5">
-            {book.aiSummary}
-          </p>
-        </div>
-      )}
+    <div className="space-y-3">
+      <p className="text-xs uppercase tracking-wide text-(--color-walnut-500) font-semibold">
+        🤖 AI가 골라준 제목
+      </p>
+      <p className="text-base font-medium text-(--color-ink-strong) leading-snug bg-(--color-surface-sunken) rounded-md px-3 py-2.5">
+        {book.title}
+      </p>
+      <p className="text-xs text-(--color-ink-faint) leading-relaxed">
+        마음에 들지 않으면 책장에서 책을 클릭해 편집할 수 있어요.
+      </p>
     </div>
   )
 }

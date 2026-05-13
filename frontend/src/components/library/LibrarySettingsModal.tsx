@@ -257,9 +257,9 @@ export function LibrarySettingsModal({
       {me && (
         <div className="mt-7 pt-7 border-t border-(--color-line-soft) space-y-3">
           <div>
-            <h3 className="text-sm font-semibold text-(--color-ink-strong)">내 계정 · AI 자동 분류</h3>
+            <h3 className="text-sm font-semibold text-(--color-ink-strong)">내 계정 · AI 자동 제목</h3>
             <p className="text-xs text-(--color-ink-muted) mt-0.5">
-              모든 도서관에 공통 적용됩니다. 새로 추가하는 책의 태그·요약에만 영향을 주며 기존 책은 그대로 유지됩니다.
+              모든 도서관에 공통 적용됩니다. 제목을 비우고 추가한 신규 책에만 영향을 주며 기존 책은 그대로 유지됩니다.
             </p>
           </div>
           <button
@@ -290,8 +290,8 @@ export function LibrarySettingsModal({
               </p>
               <p className="text-xs text-(--color-ink-muted) mt-0.5 leading-relaxed">
                 {me.aiFeaturesEnabled
-                  ? '신규 책 추가 시 페이지 제목·본문이 Google Gemini로 전송되어 태그(2~4개)와 요약을 생성합니다.'
-                  : '신규 책 추가 시 외부 AI 호출 없이 그대로 저장됩니다.'}
+                  ? '제목을 비우고 추가하면 페이지 제목·본문이 Google Gemini로 전송되어 책장에 어울리는 짧은 제목을 만듭니다.'
+                  : '제목을 비워도 외부 AI 호출 없이 사이트 도메인이 그대로 들어갑니다.'}
               </p>
             </div>
           </button>

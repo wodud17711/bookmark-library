@@ -25,8 +25,14 @@ import java.util.Optional;
 @Slf4j
 public class WebMetadataFetcher {
 
+    // We tried a self-identifying bot UA first ("…BookmarkLibraryBot/1.0…") but
+    // a lot of Korean portals (DCInside, Naver cafe, etc.) reject non-browser
+    // UAs at the edge — fetch returned empty and the row title fell back to
+    // the URL host. The user adding the book is explicitly asking us to read
+    // it on their behalf, so a normal-browser UA is fine.
     private static final String USER_AGENT =
-        "Mozilla/5.0 (compatible; BookmarkLibraryBot/1.0; +https://bookmark-library-iota.vercel.app)";
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        + "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36";
     private static final int EXCERPT_MAX_CHARS = 1500;
 
     private final AiProperties props;
@@ -56,7 +62,10 @@ public class WebMetadataFetcher {
 
             return Optional.of(new WebPageContent(url, title, siteName, excerpt));
         } catch (IOException | IllegalArgumentException e) {
-            log.debug("Failed to fetch metadata for {}: {}", url, e.getMessage());
+            // INFO not DEBUG: when fetch fails the row title silently degrades
+            // to the URL host and the AI prompt is gutted. The signal is worth
+            // surfacing in normal logs while we iterate.
+            log.info("Failed to fetch metadata for {}: {}", url, e.getMessage());
             return Optional.empty();
         }
     }
