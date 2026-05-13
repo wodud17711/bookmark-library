@@ -25,6 +25,14 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
 	implementation 'org.thymeleaf.extras:thymeleaf-extras-springsecurity6'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
+	// jsoup parses real-world HTML (encoding detection, broken markup) for the
+	// AI metadata fetcher — building a hand-rolled <title>/<meta> extractor that
+	// survives charset edge cases isn't worth ~400KB of jar.
+	implementation 'org.jsoup:jsoup:1.18.1'
+	// Jackson — spring-boot-starter-webmvc (Boot 4 slim variant) does NOT pull
+	// it in, but GeminiAiService needs ObjectMapper to build the structured-
+	// output request body and parse responses.
+	implementation 'org.springframework.boot:spring-boot-starter-json'
 	compileOnly 'org.projectlombok:lombok'
 	runtimeOnly 'com.h2database:h2'
 	runtimeOnly 'org.postgresql:postgresql'
@@ -41,4 +49,8 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+}
+
+tasks.withType(JavaCompile).configureEach {
+	options.compilerArgs += ['-Xlint:deprecation']
 }
