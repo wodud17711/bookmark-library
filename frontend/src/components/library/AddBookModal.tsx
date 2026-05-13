@@ -149,7 +149,7 @@ export function AddBookModal({
         {aiEnabled && !title.trim() && (
           <p className="text-xs text-(--color-ink-faint) leading-relaxed">
             🤖 제목을 비우면 AI가 페이지를 읽고 짧은 제목을 골라드려요.
-            (설정에서 끌 수 있어요)
+            무료 모델을 사용 중이라 시간이 좀 걸릴 수 있어요. (설정에서 끌 수 있어요)
           </p>
         )}
       </form>
