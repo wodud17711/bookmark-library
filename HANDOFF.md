@@ -1,5 +1,133 @@
 # HANDOFF
 
+## [2026-05-13] 여섯 번째 세션 — AI 자동 태깅/요약 통합 (Gemini)
+
+외부 요구(포트폴리오/AI 통합 경험 시연)에 따라 LLM 통합. Claude API는 Max 플랜과 별개로 종량제라 영구 무료 티어 있는 Gemini 2.5 Flash-Lite 선택. PR1(인프라) → PR2(책 생성 흐름 hook + opt-out + 정책) → hotfix(OAuth 500) 순으로 라이브 배포 완료.
+
+### 오늘 한 일
+
+#### A. AI 도입 의사결정 (긴 토론)
+
+평가자 관점 분석 — 외부 요구가 "AI 다뤘다 명함" 성격이라 og:image 색 추출(통계 알고리즘) 같은 비-LLM 접근은 약함. 진짜 LLM 호출 필수.
+
+비용 비교:
+- Claude Max 플랜은 Claude.ai/Claude Code만 커버, Anthropic API 호출은 별도 과금
+- Gemini 2.5 Flash-Lite: 영구 무료 (15 RPM / 30,000 RPD, 충분)
+- 추가 고려: ToS상 무료 티어 데이터가 학습에 활용될 수 있음 → 개인정보처리방침 갱신 필수
+
+기능 범위 확정:
+1. 자동 태깅 (URL 본문 분석 → 2~4개 한국어 태그)
+2. 1줄 요약
+- (B 캐치프레이즈 후보는 사양 충돌로 보류 — OG 이미지에 한글 폰트 박는 비용 대비 효용)
+
+#### B. PR1 — Gemini 통합 인프라 (커밋 bb93a48)
+
+신규 파일 8개 + 수정 3개:
+- `AiService` 인터페이스 + `GeminiAiService` (`responseSchema`로 구조화된 JSON 출력)
+- `WebMetadataFetcher` (jsoup, 200KB 캡)
+- `AiRateLimiter` (per-user 10 RPM, in-memory ConcurrentHashMap sliding window)
+- `AiProperties` (`@ConfigurationProperties("ai")` + `@ConfigurationPropertiesScan` 활성화)
+- `AiAnalysis`, `WebPageContent` DTO records
+- `AiController.POST /api/ai/analyze` 스모크 엔드포인트
+- `build.gradle`: jsoup 1.18.1 + spring-boot-starter-json 추가
+- `application.yml`: `ai.*` 블록
+
+**Spring Boot 4 호환 중요 발견**: Jackson 3.x로 패키지가 `com.fasterxml.jackson.databind` → `tools.jackson.databind`로 이동. `asText()` → `asString()`. 어노테이션은 `com.fasterxml.jackson.annotation` 그대로 (backward compat). 다른 ObjectMapper 사용처 작업 시 같은 패턴 적용 필요.
+
+스모크 검증: `fetch('/api/ai/analyze', {body: JSON.stringify({url:'https://react.dev'})})` → 한국어 태그 + 요약 정상 응답 확인. Vercel rewrite로 Railway forward, CORS 무관.
+
+#### C. PR2 — 책 생성 흐름 hook + opt-out + 정책 (커밋 1865f0a)
+
+백엔드:
+- `Book`: `tags` (`@ElementCollection book_tags`, `@OrderColumn`), `aiSummary` (512자)
+- `User`: `aiFeaturesEnabled` (default true)
+- `BookService.create.annotateWithAi(book, user)` — `user.isAiFeaturesEnabled()` 체크 → metadata fetch → AI analyze → set fields. **실패 swallow, 책 생성은 보호**
+- `BookResponse` + `LibraryService.toBookResponse` + `BookshelfService.toResponse` 3곳 모두 tags/aiSummary 노출
+- `MeResponse` + `UpdateMeRequest` + `AuthController.PATCH /api/me` + `UserService.updateSettings()`
+- `AiAnalysis.isEmpty()`에 `@JsonIgnore` (PR1 스모크 응답에 `empty: false` leak 정리)
+
+프론트엔드:
+- `AddBookModal`: 책 추가 후 결과 패널(태그 칩 + 요약) 표시, 사용자 dismiss. `aiEnabled` prop으로 "AI가 분류 중…" 라벨 토글
+- `LibrarySettingsModal`: 맨 아래 "내 계정 · AI 자동 분류" 섹션 (form 밖, 즉시 저장). `me` + `onMeChanged` prop 추가
+- `DevNoticeBanner`: 🤖 안내 한 줄 + opt-out 안내
+- `api/auth.ts`: `Me.aiFeaturesEnabled`, `updateMe()` 추가
+- `api/library.ts`: `Book.tags`, `Book.aiSummary`
+
+정책 (시행일 2026-05-13):
+- `PrivacyPolicyPage` §5/§6: Gemini API 위탁(§5) + 국외 이전(§6 (3)번) — 이전 항목, 거부권, 연락처
+- `TermsPage` 제5조의2: AI 기반 부가 기능 (정확성 보증 X, 비활성화 권리)
+
+#### D. Hotfix — OAuth 500 (커밋 5b5d7cc)
+
+PR2 배포 후 로그인 시 Whitelabel 500. 원인:
+- `User.aiFeaturesEnabled` `nullable=false` 컬럼을 ddl-auto=update가 ADD하려고 시도
+- PostgreSQL은 기존 row 있는 상태에서 NOT NULL boolean 컬럼을 DEFAULT 없이 ADD 거부
+- Hibernate는 ALTER 실패를 silent log로만 처리 → 컨테이너는 시작하지만 컬럼 없음 → `SELECT ai_features_enabled` SQL 에러 → OAuth 콜백 500
+
+처방: `@org.hibernate.annotations.ColumnDefault("true")` 추가. Hibernate가 `ADD COLUMN ... DEFAULT true NOT NULL` 생성 → PG가 기존 row를 true로 자동 채움.
+
+배포 후 검증 4가지 모두 정상:
+1. 책 추가 → AI 결과 패널 (태그 칩 + 요약) ✓
+2. AI 토글 끄기 → 결과 패널 없이 바로 닫힘 ✓
+3. DevNoticeBanner 🤖 안내 ✓
+4. /privacy, /terms 페이지 시행일 + Gemini 라인 ✓
+
+#### E. AI 미적용 의도 경로 문서화 (커밋 미정 — 이번 handoff 함께)
+
+`BookmarkImportService` + `StoredBookService.move`는 `BookService.create` 우회 → AI 호출 안 됨. 의도된 동작이지만 의도 명시 안 돼 미래 개발자 혼란 가능성. 코드 주석 한 줄씩 추가:
+- Import: 100권 burst가 10분+ 동기 멈춤 + Gemini 일 한도 초과 위험 → PR3 비동기 처리 예정
+- Storage move: 사용자가 이미 본 URL, 가치 적음
+
+### 현재 상태
+
+**라이브**:
+- Gemini API 키 Railway env `GEMINI_API_KEY` 등록됨
+- 단일 책 추가 흐름에 AI 동기 통합 (2-3초 지연 — UX 수용 가능, PR3에서 async)
+- per-user opt-out 토글 (LibrarySettingsModal 맨 아래)
+- 약관/방침 갱신 시행
+
+**동작 안 함 / 의도된 제외**:
+- Chrome import 시 AI 미적용 (의도, PR3 비동기로 풀 예정)
+- Storage → Shelf 이동 시 AI 미적용 (의도)
+- BookCard 평소 화면에 태그/요약 안 보임 (AddBookModal 직후만) → 포폴 가시성 약점, PR3 우선 후보
+
+### 다음에 이어서 할 일 (PR3 후보)
+
+**(b) BookCard 평소 노출 ★ 1순위 — 포폴 임팩트**
+- 현재 AddBookModal 결과 패널만 — 시간 지나면 안 보임
+- BookCard hover popover (`md:` 가드, 모바일은 클릭) 또는 EditBookModal에 태그/요약 필드 노출
+- 사용자 편집 기능 (태그 add/remove/edit, 요약 수정)
+- `Book` 엔티티는 이미 필드 있음, `BookResponse` 노출 됨 → 프론트만 손대면 됨
+- 추정 작업: 반나절~1일
+
+**(a) Import burst 비동기 처리 ★ 2순위 — 운영 안정성**
+- `BookmarkImportService`에 `@Async` annotation 메소드 또는 `ThreadPoolTaskExecutor.execute()`
+- 책 생성 transaction 커밋 후 별도 thread에서 책 ID 리스트 순회하며 AI 호출
+- 진행률 표시는 자연스러운 흐름으로: Library refetch마다 새 태그 점진 등장 (폴링 불필요)
+- 또는 별도 endpoint `POST /api/books/{id}/reannotate` 운영자/사용자가 트리거
+- Gemini RPM 한도 고려 — 1초당 1-2건으로 throttle 필요
+- 추정 작업: 1일
+
+**(c) 동적 OG 이미지 ★ 보류 (사양 확정됨)**
+- PR3 (a)+(b) 후 합리적 후보
+- 사양은 `project_vision.md`에 그대로 살아있음
+
+### 미해결 이슈 / 막힌 지점
+
+없음. 모든 의도된 기능 정상 동작 확인.
+
+### 컨텍스트 / 주의사항
+
+- **Spring Boot 4 = Jackson 3.x**: 새 ObjectMapper 코드 짤 때 `tools.jackson.databind`, `asString()` 패턴 따를 것
+- **Hibernate ddl-auto=update + 새 NOT NULL 컬럼 = `@ColumnDefault` 필수**: PG가 기존 row 있는 테이블에 NOT NULL 컬럼을 DEFAULT 없이 못 받음. 다음에 boolean/int 같은 primitive 새 컬럼 추가할 때 같은 패턴 적용
+- **AI 동기 호출 = 책 추가 2-3초 지연**: UX 수용 가능하나 PR3 async가 진짜 픽스
+- **Gemini ToS**: 무료 티어 데이터가 모델 학습에 활용될 수 있음. 약관 갱신 했지만 종량제 전환 시 학습 제외 가능 (필요 시 검토)
+- **AiRateLimiter는 in-memory**: 컨테이너 재시작 시 카운터 초기화. 단일 인스턴스 운영이라 OK. 멀티 인스턴스 가면 Redis 필요
+- **`AiController.POST /api/ai/analyze`** 스모크 엔드포인트 남아있음. PR3에서 제거 또는 admin re-annotate 용도로 보존 결정
+- **환경변수**: 신규 PC에서 로컬 dev 띄울 땐 `GEMINI_API_KEY` 비워두면 자동 비활성화 (AiProperties.isOperational() false 반환)
+
+---
+
 ## [2026-05-07] 다섯 번째 세션 — 운영 안정화 (OOM 픽스 + DB 슬림화 + 세션/UX 정리)
 
 배포 다음 날 바로 OOM 알림 폭주로 시작, 메모리 튜닝 → DB 슬림화 → UX 보강 순으로 진행. 또 호스팅/수익화 전략 토의도 같이 (결론: Vercel/Railway 유지). 다음 세션 핵심은 **동적 OG 생성 구현** — 사양 확정됨.

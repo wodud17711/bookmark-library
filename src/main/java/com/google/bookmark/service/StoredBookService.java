@@ -62,6 +62,10 @@ public class StoredBookService {
 
         int basePosition = shelf.getBooks().size();
         int moved = 0;
+        // Bypasses BookService.create — moving from storage is typically a
+        // bulk operation, and the user already saw these URLs without AI
+        // metadata in the storage drawer. Re-running AI on every move would
+        // double-charge Gemini calls. Async re-annotation is tracked for PR3.
         for (StoredBook sb : stored) {
             Book book = new Book();
             book.setBookshelf(shelf);
