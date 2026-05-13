@@ -291,7 +291,7 @@ export function LibrarySettingsModal({
               <p className="text-xs text-(--color-ink-muted) mt-0.5 leading-relaxed">
                 {me.aiFeaturesEnabled
                   ? '제목을 비우고 추가하면 페이지 제목·본문이 Google Gemini로 전송되어 책장에 어울리는 짧은 제목을 만듭니다.'
-                  : '제목을 비워도 외부 AI 호출 없이 사이트 도메인이 그대로 들어갑니다.'}
+                  : '외부 AI 호출 없이 페이지의 제목 태그를 그대로 가져옵니다. (페이지를 읽지 못하면 사이트 도메인)'}
               </p>
             </div>
           </button>
