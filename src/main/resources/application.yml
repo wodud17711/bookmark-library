@@ -68,6 +68,24 @@ app:
     # `vite build`; the dev default points at Vite's source entry.
     script-url: ${SPA_SCRIPT_URL:/src/main.tsx}
 
+ai:
+  # Empty api-key disables AI features entirely (graceful no-op). Lets local dev
+  # boot without a key; prod sets GEMINI_API_KEY in Railway Variables. Switching
+  # provider later only needs a different AiService bean — config stays here.
+  enabled: ${AI_ENABLED:true}
+  gemini:
+    api-key: ${GEMINI_API_KEY:}
+    model: ${GEMINI_MODEL:gemini-2.5-flash-lite}
+    # Gemini free tier: 15 RPM / 30,000 RPD on Flash-Lite. Per-user guard sits
+    # well below that — burst from Chrome import (100 books) is the real risk.
+    per-user-per-minute: 10
+    timeout-seconds: 15
+  metadata-fetch:
+    # Hard cap on bytes we read from a target URL before AI prompt construction.
+    # 200KB covers the <head> + opening body of essentially every site.
+    max-bytes: 204800
+    timeout-seconds: 8
+
 ---
 spring:
   config:
