@@ -1,5 +1,89 @@
 # HANDOFF
 
+## [2026-05-13 오후] 일곱 번째 세션 — AI 흐름 재설계 (smart title + cover color)
+
+여섯 번째 세션 끝나고 같은 날 이어서 — 책장 행에 태그 칩 + 요약 줄 노출(PR3 (b) A안)을 먼저 구현해 라이브로 보다가, 시각상 행이 두꺼워지고 작은 태그가 큰 가치 없다는 사용자 피드백으로 방향 전환. AI 결과 노출을 **태그/요약 줄 → "책 제목 자체를 똑똑하게 짓기"** 로 피벗. 같은 호출에 cover color까지 묶어 한 호출로 두 가치 동시 제공.
+
+### 오늘 한 일
+
+#### A. 태그/요약 행 노출 (실패 → 롤백)
+
+`SortableBookRow`/`FavoriteBookRow`/`BookRow` 3곳에 spine self-stretch + 태그 칩 inline + 요약 1줄 truncate 추가. 라이브 비주얼 보고 "두껍고 굳이 필요 없음" 판단 → 전부 원래 1줄 디자인으로 롤백. (commit `78190a2`에 통합돼 들어감 — A안 실험은 같은 PR 안에서 폐기됐음)
+
+#### B. PR3 (b) 재설계 — Smart Title 흐름
+
+- `AiAnalysis`에 `smartTitle` 필드 추가 (`tags`/`aiSummary`는 보존, UI 노출만 제거)
+- `GeminiAiService` 프롬프트/스키마 갱신:
+  - 잘 알려진 사이트는 서비스명만 (`Google`, `네이버`)
+  - 게시판/블로그/뉴스 글은 `사이트명 - 한 줄 요약` (`벨로그 - React 19 컴파일러 정리`)
+- `BookService.create` 흐름 재배치:
+  - 사용자 입력 title > clean brand `<title>` 휴리스틱 (≤30자, separator 없음) > AI smartTitle > fallback
+  - clean brand면 AI 호출 스킵 (RPM 절약)
+- `WebMetadataFetcher` UA를 자가식별 봇 → 일반 브라우저로 변경 — DCInside, ArcaLive 등 봇 UA 차단 회피
+
+검증: `https://www.dcinside.com/board/lol` → "셈 - 연봉 실수령액부터 부동산 세금까지", "아카라이브 - 이환 일퀘 주간퀘 숙제 총정리" 같은 결과 정상.
+
+#### C. PR3 (c) Cover Color AI 추천 (추가 호출 비용 0)
+
+- `AiAnalysis.coverColor` 필드 추가 + 같은 Gemini 호출 응답에 묶음
+- `WebPageContent.themeColor` 필드 + `WebMetadataFetcher`가 `<meta name="theme-color">` 파싱 (#RGB / #RRGGBB만, rgba/named 무시)
+- 우선순위: 사용자가 picker 누름 > AI smartTitle 호출 시 같이 받은 coverColor > theme-color > 사용자가 보낸 lastUsedColor
+- 프롬프트에 알려진 브랜드 색 카탈로그(GitHub #1F2328, Naver #03C75A 등) + 명도 30~60% 가이드
+- `CreateBookRequest.coverColorAutoPicked` Boolean 추가, 프론트는 `userPickedColor` state로 picker touch 추적
+- AddBookModal 결과 패널에 색상 swatch + "책 색상도 골라드렸어요" 안내 (실제로 색이 바뀐 경우만)
+
+#### D. 모델 교체 + 카피 정확화
+
+- Gemini 2.5 Flash-Lite (RPD 20으로 줄어듦) → 3.1 Flash-Lite (RPD 500). `application.yml` 디폴트 변경. Railway에 `GEMINI_MODEL` env 안 박혀있어서 자동 적용
+- AddBookModal에 "무료 모델 사용 중이라 시간이 좀 걸릴 수 있어요" 안내
+- LibrarySettingsModal 비활성 카피 정확화: "외부 AI 호출 없이 사이트 도메인" → "외부 AI 호출 없이 페이지의 제목 태그를 그대로 가져옵니다 (못 읽으면 도메인)" — `<title>` 추출은 AI 토글과 무관하게 작동하므로
+- TermsPage/PrivacyPolicyPage "태그·요약" → "제목·태그·요약" (AI가 만드는 모든 항목 정확히 명시)
+- DevNoticeBanner / LibrarySettingsModal 토글명 "AI 자동 분류" → "AI 자동 제목"
+
+### 현재 상태
+
+**라이브 (origin/main)**: 커밋 `78190a2`까지만 푸시됨 — smart title 흐름은 라이브에 들어가있음. cover color, 모델 교체, 안내 카피는 **아직 라이브 미반영**.
+
+**브랜치 `claude/bold-einstein-05e337` (origin/main 위 3 커밋)**:
+- `76f5fc5` cover color 추천 (theme-color + AI)
+- `913b618` AI 비활성 카피 정확화
+- `0f88bc0` 무료 모델 대기 안내
+- `ad1eedb` Gemini 모델 2.5 → 3.1
+- ✅ 로컬 8082에서 smart title + cover color 동작 확인 완료
+- ⏳ cover color는 시각 검증 미완
+
+**다음 세션(2026-05-14) 1순위 작업: 시각 검증 시나리오 4개**
+1. Picker 안 건드리고 추가 → AI 색 적용 + 결과 패널 swatch
+2. Picker 클릭 후 추가 → 사용자 색 그대로 (AI 색 무시)
+3. theme-color 박힌 사이트 (GitHub/Naver/YouTube) → 그 사이트 브랜드 색
+4. theme-color 없는 사이트 (DCInside) → AI 임의 추천
+
+검증 OK면 → 메인 IntelliJ Terminal `git merge claude/bold-einstein-05e337 && git push origin main` → Railway/Vercel 배포
+
+### 다음에 이어서 할 일 (검증 후)
+
+**(a) Import burst 비동기 처리 — 운영 안정성 1순위**
+HANDOFF 여섯 번째 세션 항목 그대로. PR3 (b/c) 끝나면 다음 후보.
+
+**(b) BookCard 평소 노출 — 폐기**
+시각 비교 끝났음. 행은 1줄로 유지. 검색용 tags/aiSummary는 DB에만 (향후 검색 기능 들어가면 그때 활용).
+
+**(c) 동적 OG 이미지 — 보류 그대로**
+
+### 미해결 이슈 / 막힌 지점
+
+- 메인 IntelliJ는 메인 리포(`~/Desktop/포폴/bookmark`)에서 띄워져 있고 worktree 변경은 안 보임. 이번 세션에서 worktree 백엔드를 8082 별도 포트로 띄우고 vite proxy 잠시 8082로 돌려서 검증한 패턴 사용. 검증 완료 후 vite proxy 8081 복원 + 최종 커밋함. 다음 세션도 같은 패턴이면 IntelliJ 새 창 + Run Config 복제 (env 3개) 가시면 됨.
+- HANDOFF 여섯 번째 세션의 "Gemini 2.5 Flash-Lite 30,000 RPD" 표기는 옛 정보. 현 한도 캘리브레이션 결과 RPD 20.
+
+### 컨텍스트 / 주의사항
+
+- **IntelliJ가 외부 편집한 .class를 자동 재컴파일 안 함** — Build → Rebuild Project 필수, 그냥 Stop+Run만 하면 옛 코드. 이번 세션 디버깅 시간 30분 까먹은 원인.
+- **AI 호출 1회 = title + tags + summary + coverColor 모두 같은 응답** — 추가 필드 늘려도 호출 비용 동일. 향후 추가 메타(예: "이 책에 어울리는 이모지 1개")도 같은 패턴으로 무비용 추가 가능.
+- **cover color 자동 적용 트리거**: 사용자가 BookCoverPicker를 한 번도 안 눌렀고 + 제목 비웠을 때만. 제목을 채우면 AI 자체가 안 돌아서 cover도 사용자 default 그대로. 색만 자동으로 받고 싶다면 향후 별도 트리거 추가 필요(현재 미구현).
+- **검색용 tags/aiSummary는 신규 책에도 계속 저장됨** — UI에는 안 보이지만 DB에 누적. 향후 검색/필터 기능 들어가면 그대로 사용.
+
+---
+
 ## [2026-05-13] 여섯 번째 세션 — AI 자동 태깅/요약 통합 (Gemini)
 
 외부 요구(포트폴리오/AI 통합 경험 시연)에 따라 LLM 통합. Claude API는 Max 플랜과 별개로 종량제라 영구 무료 티어 있는 Gemini 2.5 Flash-Lite 선택. PR1(인프라) → PR2(책 생성 흐름 hook + opt-out + 정책) → hotfix(OAuth 500) 순으로 라이브 배포 완료.
