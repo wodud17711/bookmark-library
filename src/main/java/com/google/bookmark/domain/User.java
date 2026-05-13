@@ -15,6 +15,7 @@ import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.ColumnDefault;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -65,8 +66,13 @@ public class User {
      * because the feature is the headline value-add; users who don't want their
      * URLs/page excerpts sent to Gemini can flip this off in settings. Existing
      * books are not retro-affected when this changes — only future creations.
+     *
+     * {@link ColumnDefault} is what makes ddl-auto=update succeed on a table
+     * with pre-existing rows — without a DB-level DEFAULT, PostgreSQL rejects
+     * the NOT NULL column add and the entire migration fails silently.
      */
     @Column(name = "ai_features_enabled", nullable = false)
+    @ColumnDefault("true")
     private boolean aiFeaturesEnabled = true;
 
     @Column(name = "created_at", nullable = false, updatable = false)
