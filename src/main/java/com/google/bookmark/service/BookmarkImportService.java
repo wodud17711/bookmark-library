@@ -135,6 +135,10 @@ public class BookmarkImportService {
                 shelf.setPosition(basePosition + shelvesCreated);
                 library.addBookshelf(shelf);
 
+                // Bypasses BookService.create on purpose — running AI tagging
+                // for a 100+ book Chrome import would block for ~10 min on the
+                // per-user RPM cap and drain the daily Gemini quota. Async
+                // background annotation is tracked for PR3.
                 int position = 0;
                 for (ImportEntry e : chunk) {
                     Book book = new Book();
