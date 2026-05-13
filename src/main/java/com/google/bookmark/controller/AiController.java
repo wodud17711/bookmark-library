@@ -45,7 +45,7 @@ public class AiController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "URL이 비어있습니다.");
         }
         WebPageContent content = metadataFetcher.fetch(request.url())
-            .orElse(new WebPageContent(request.url(), null, null, null));
+            .orElse(new WebPageContent(request.url(), null, null, null, null));
         return aiService.analyze(content, principal.getUserId());
     }
 }

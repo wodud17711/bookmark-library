@@ -63,11 +63,17 @@ public class BookService {
         // or (b) ask AI to produce a smart "사이트명 - 한 줄 요약" style title.
         // Tags/summary that AI returns alongside are still stored for future
         // search/filter even though the row UI no longer surfaces them.
+        //
+        // Cover color piggy-backs on the same AI call: if the user did NOT
+        // pick a color (coverColorAutoPicked=true) AND we're going through
+        // the AI path anyway, the backend overrides the lastUsedColor that
+        // the frontend sent with theme-color or an AI-suggested hex.
         String suppliedTitle = req.title();
+        boolean autoColor = Boolean.TRUE.equals(req.coverColorAutoPicked());
         if (suppliedTitle != null && !suppliedTitle.isBlank()) {
             book.setTitle(suppliedTitle.trim());
         } else {
-            resolveTitleAndAnnotate(book, owner, url);
+            resolveTitleAndAnnotate(book, owner, url, autoColor);
         }
 
         shelf.getBooks().add(book);
@@ -75,14 +81,23 @@ public class BookService {
         return toResponse(book);
     }
 
-    private void resolveTitleAndAnnotate(Book book, User owner, String url) {
+    private void resolveTitleAndAnnotate(Book book, User owner, String url, boolean autoColor) {
         Optional<WebPageContent> metadataOpt = metadataFetcher.fetch(url);
         WebPageContent content = metadataOpt
-            .orElse(new WebPageContent(url, null, book.getSiteName(), null));
+            .orElse(new WebPageContent(url, null, book.getSiteName(), null, null));
         String fetchedTitle = content.title();
+        String themeColor = content.themeColor();
+
+        // theme-color is the cheapest brand-accurate color source — apply it
+        // up-front when autoColor is on. AI may override below; if AI is off
+        // or returns empty, theme-color stays.
+        if (autoColor && themeColor != null) {
+            book.setCoverColor(themeColor);
+        }
 
         // Clean brand-style page titles (short, no chained separators) are
-        // already what we want — skip the AI call and save quota.
+        // already what we want — skip the AI call and save quota. Color
+        // already settled via theme-color (or stays as user's lastUsedColor).
         if (isCleanBrandTitle(fetchedTitle)) {
             book.setTitle(fetchedTitle.trim());
             return;
@@ -102,6 +117,14 @@ public class BookService {
             book.setTitle(trimmed.length() > 256 ? trimmed.substring(0, 256) : trimmed);
         } else {
             book.setTitle(fallbackTitle(fetchedTitle, url));
+        }
+
+        // AI-suggested color overrides theme-color when present. Already hex-
+        // normalized by GeminiAiService.normalizeHex; null means model didn't
+        // return one or the value was malformed.
+        String aiColor = analysis.coverColor();
+        if (autoColor && aiColor != null) {
+            book.setCoverColor(aiColor);
         }
 
         if (analysis.tags() != null && !analysis.tags().isEmpty()) {

@@ -58,9 +58,10 @@ public class WebMetadataFetcher {
                 metaContent(doc, "og:site_name"),
                 metaContent(doc, "application-name")
             );
+            String themeColor = extractThemeColor(doc);
             String excerpt = extractExcerpt(doc);
 
-            return Optional.of(new WebPageContent(url, title, siteName, excerpt));
+            return Optional.of(new WebPageContent(url, title, siteName, themeColor, excerpt));
         } catch (IOException | IllegalArgumentException e) {
             // INFO not DEBUG: when fetch fails the row title silently degrades
             // to the URL host and the AI prompt is gutted. The signal is worth
@@ -79,6 +80,26 @@ public class WebMetadataFetcher {
     private static String firstNonBlank(String... values) {
         for (String v : values) {
             if (v != null && !v.isBlank()) return v.trim();
+        }
+        return null;
+    }
+
+    /**
+     * Pulls a #RRGGBB string from <meta name="theme-color"> if the site provides
+     * one. Sites sometimes ship rgb()/rgba()/named colors — we only accept the
+     * hex form so it round-trips cleanly into our book-spine palette schema.
+     */
+    private static String extractThemeColor(Document doc) {
+        String raw = metaContent(doc, "theme-color");
+        if (raw == null) return null;
+        String trimmed = raw.trim();
+        // Accept #abc shorthand by expanding to #aabbcc.
+        if (trimmed.matches("^#[0-9A-Fa-f]{3}$")) {
+            char r = trimmed.charAt(1), g = trimmed.charAt(2), b = trimmed.charAt(3);
+            return ("#" + r + r + g + g + b + b).toUpperCase();
+        }
+        if (trimmed.matches("^#[0-9A-Fa-f]{6}$")) {
+            return trimmed.toUpperCase();
         }
         return null;
     }

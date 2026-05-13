@@ -6,11 +6,13 @@ import java.util.List;
 
 public record AiAnalysis(
     String smartTitle,
+    /** Suggested book-spine hex color (#RRGGBB) or null when AI didn't return one. */
+    String coverColor,
     List<String> tags,
     String summary
 ) {
     public static AiAnalysis empty() {
-        return new AiAnalysis(null, List.of(), null);
+        return new AiAnalysis(null, null, List.of(), null);
     }
 
     // Jackson would otherwise serialize this as an `empty` property in JSON.
@@ -18,6 +20,7 @@ public record AiAnalysis(
     @JsonIgnore
     public boolean isEmpty() {
         return (smartTitle == null || smartTitle.isBlank())
+            && (coverColor == null || coverColor.isBlank())
             && (tags == null || tags.isEmpty())
             && (summary == null || summary.isBlank());
     }

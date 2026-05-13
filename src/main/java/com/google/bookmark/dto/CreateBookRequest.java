@@ -17,5 +17,10 @@ public record CreateBookRequest(
     @Size(max = 256) String title,
     @Size(max = 128) String siteName,
     @Pattern(regexp = "^#[0-9A-Fa-f]{6}$") String coverColor,
-    @Pattern(regexp = "^#[0-9A-Fa-f]{6}$") String titleColor
+    @Pattern(regexp = "^#[0-9A-Fa-f]{6}$") String titleColor,
+    /** True when the user did NOT touch BookCoverPicker — the supplied
+     *  coverColor is the lastUsedColor default and the backend may override
+     *  it with a theme-color or AI-suggested spine color. Null is treated
+     *  as false for back-compat with older clients. */
+    Boolean coverColorAutoPicked
 ) {}

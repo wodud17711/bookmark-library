@@ -173,6 +173,10 @@ export interface CreateBookPayload {
   siteName?: string
   coverColor?: string
   titleColor?: string
+  /** True when the user did NOT touch the cover-color picker. Lets the
+   *  backend optionally override the lastUsedColor default with a theme-color
+   *  pulled from the page or an AI-suggested spine color. */
+  coverColorAutoPicked?: boolean
 }
 
 export interface UpdateBookPayload {
