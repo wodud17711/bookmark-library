@@ -60,6 +60,15 @@ public class User {
     @Column(name = "current_library_id")
     private Long currentLibraryId;
 
+    /**
+     * Per-user opt-out for AI-driven tagging/summary on new books. Default ON
+     * because the feature is the headline value-add; users who don't want their
+     * URLs/page excerpts sent to Gemini can flip this off in settings. Existing
+     * books are not retro-affected when this changes — only future creations.
+     */
+    @Column(name = "ai_features_enabled", nullable = false)
+    private boolean aiFeaturesEnabled = true;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 

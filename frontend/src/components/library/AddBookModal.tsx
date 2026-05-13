@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Button, Modal, TextInput } from '../ui'
 import { createBook } from '../../api/library'
+import type { Book } from '../../api/library'
 import { extractApiErrorMessage } from '../../api/client'
 import { BookCoverPicker } from './BookCoverPicker'
 import { lastUsedColor, recordColor } from '../../utils/bookCoverPalette'
@@ -11,14 +12,30 @@ interface Props {
   bookshelfTitle: string
   onClose: () => void
   onCreated: () => void
+  /**
+   * Whether the owner has AI features enabled at the account level. Controls
+   * whether we show the "잠시만요, AI가 분류 중이에요" hint while waiting on the
+   * backend's synchronous Gemini call.
+   */
+  aiEnabled: boolean
 }
 
-export function AddBookModal({ open, bookshelfId, bookshelfTitle, onClose, onCreated }: Props) {
+export function AddBookModal({
+  open,
+  bookshelfId,
+  bookshelfTitle,
+  onClose,
+  onCreated,
+  aiEnabled,
+}: Props) {
   const [url, setUrl] = useState('')
   const [title, setTitle] = useState('')
   const [coverColor, setCoverColor] = useState('#3D2817')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // After successful create we keep the modal open for a moment to surface
+  // the AI result — closing immediately would hide the headline feature.
+  const [createdBook, setCreatedBook] = useState<Book | null>(null)
 
   useEffect(() => {
     if (open) {
@@ -27,6 +44,7 @@ export function AddBookModal({ open, bookshelfId, bookshelfTitle, onClose, onCre
       setUrl('')
       setTitle('')
       setError(null)
+      setCreatedBook(null)
     }
   }, [open])
 
@@ -48,7 +66,7 @@ export function AddBookModal({ open, bookshelfId, bookshelfTitle, onClose, onCre
 
     setSubmitting(true)
     try {
-      await createBook({
+      const book = await createBook({
         bookshelfId,
         url: normalizedUrl,
         title: title.trim() || undefined,
@@ -56,12 +74,35 @@ export function AddBookModal({ open, bookshelfId, bookshelfTitle, onClose, onCre
       })
       recordColor(coverColor)
       onCreated()
-      onClose()
+      const hasAiResult = (book.tags?.length ?? 0) > 0 || Boolean(book.aiSummary)
+      if (aiEnabled && hasAiResult) {
+        // Hold the modal open with the result panel; user dismisses manually.
+        setCreatedBook(book)
+      } else {
+        onClose()
+      }
     } catch (err) {
       setError(extractApiErrorMessage(err, '책 추가에 실패했습니다.'))
     } finally {
       setSubmitting(false)
     }
+  }
+
+  if (createdBook) {
+    return (
+      <Modal
+        open={open}
+        onClose={onClose}
+        title="AI 자동 분류 완료"
+        footer={
+          <Button type="button" onClick={onClose}>
+            확인
+          </Button>
+        }
+      >
+        <AiResultPanel book={createdBook} />
+      </Modal>
+    )
   }
 
   return (
@@ -75,7 +116,7 @@ export function AddBookModal({ open, bookshelfId, bookshelfTitle, onClose, onCre
             취소
           </Button>
           <Button type="submit" form="add-book-form" disabled={submitting}>
-            {submitting ? '추가 중...' : '책장에 꽂기'}
+            {submitting ? (aiEnabled ? 'AI가 분류 중…' : '추가 중...') : '책장에 꽂기'}
           </Button>
         </>
       }
@@ -98,7 +139,51 @@ export function AddBookModal({ open, bookshelfId, bookshelfTitle, onClose, onCre
           maxLength={256}
         />
         <BookCoverPicker value={coverColor} onChange={setCoverColor} />
+        {aiEnabled && (
+          <p className="text-xs text-(--color-ink-faint) leading-relaxed">
+            🤖 책장에 꽂는 동안 AI가 페이지를 읽고 태그·요약을 자동으로 달아드려요.
+            (설정에서 끌 수 있어요)
+          </p>
+        )}
       </form>
     </Modal>
+  )
+}
+
+function AiResultPanel({ book }: { book: Book }) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <p className="text-sm font-medium text-(--color-ink-strong) mb-1">📕 {book.title}</p>
+        {book.siteName && (
+          <p className="text-xs text-(--color-ink-faint)">{book.siteName}</p>
+        )}
+      </div>
+      {book.tags && book.tags.length > 0 && (
+        <div>
+          <p className="text-xs text-(--color-ink-muted) mb-2">자동 태그</p>
+          <div className="flex flex-wrap gap-1.5">
+            {book.tags.map((tag) => (
+              <span
+                key={tag}
+                className="inline-flex items-center px-2.5 py-1 rounded-full text-xs
+                           bg-(--color-walnut-100) text-(--color-walnut-700)
+                           border border-(--color-walnut-300)/60"
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      {book.aiSummary && (
+        <div>
+          <p className="text-xs text-(--color-ink-muted) mb-2">한 줄 요약</p>
+          <p className="text-sm text-(--color-ink) leading-relaxed bg-(--color-surface-sunken) rounded-md px-3 py-2.5">
+            {book.aiSummary}
+          </p>
+        </div>
+      )}
+    </div>
   )
 }

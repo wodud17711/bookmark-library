@@ -308,6 +308,7 @@ export default function LibraryPage() {
         bookshelfTitle={addingBookFor?.title ?? ''}
         onClose={() => setAddingBookFor(null)}
         onCreated={refetch}
+        aiEnabled={me?.aiFeaturesEnabled ?? false}
       />
       <EditBookshelfModal
         open={!!editingShelf}
@@ -341,6 +342,8 @@ export default function LibraryPage() {
       <LibrarySettingsModal
         open={settingsOpen}
         library={library}
+        me={me}
+        onMeChanged={setMe}
         onClose={() => setSettingsOpen(false)}
         onSaved={refetch}
       />

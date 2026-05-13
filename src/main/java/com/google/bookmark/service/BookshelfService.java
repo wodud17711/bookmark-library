@@ -155,7 +155,9 @@ public class BookshelfService {
                 b.getId(), b.getUrl(), b.getTitle(), b.getSiteName(),
                 b.getCoverColor(), b.getTitleColor(),
                 b.getPosition(), b.isFavorite(),
-                b.getFaviconUrl(), b.getOgImageUrl()
+                b.getFaviconUrl(), b.getOgImageUrl(),
+                b.getTags() == null ? List.of() : List.copyOf(b.getTags()),
+                b.getAiSummary()
             ))
             .toList();
         return new BookshelfResponse(

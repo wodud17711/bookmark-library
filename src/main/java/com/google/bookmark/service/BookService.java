@@ -3,12 +3,17 @@ package com.google.bookmark.service;
 import com.google.bookmark.domain.Book;
 import com.google.bookmark.domain.Bookshelf;
 import com.google.bookmark.domain.StoredBook;
+import com.google.bookmark.domain.User;
+import com.google.bookmark.dto.AiAnalysis;
 import com.google.bookmark.dto.BookResponse;
 import com.google.bookmark.dto.CreateBookRequest;
 import com.google.bookmark.dto.UpdateBookRequest;
+import com.google.bookmark.dto.WebPageContent;
 import com.google.bookmark.repository.BookRepository;
 import com.google.bookmark.repository.BookshelfRepository;
 import com.google.bookmark.repository.StoredBookRepository;
+import com.google.bookmark.service.ai.AiService;
+import com.google.bookmark.service.ai.WebMetadataFetcher;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -17,6 +22,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.ArrayList;
 
 @Service
 @RequiredArgsConstructor
@@ -26,6 +32,8 @@ public class BookService {
     private final BookRepository bookRepository;
     private final BookshelfRepository bookshelfRepository;
     private final StoredBookRepository storedBookRepository;
+    private final AiService aiService;
+    private final WebMetadataFetcher metadataFetcher;
 
     public BookResponse create(Long userId, CreateBookRequest req) {
         Bookshelf shelf = loadOwnedBookshelf(userId, req.bookshelfId());
@@ -48,7 +56,30 @@ public class BookService {
 
         shelf.getBooks().add(book);
         bookRepository.flush();
+
+        // Best-effort AI annotation. Anything that fails here (fetch timeout,
+        // Gemini quota, parse error) is swallowed by AiService and returns
+        // empty — book creation must never depend on the model being up.
+        annotateWithAi(book, shelf.getLibrary().getUser());
+
         return toResponse(book);
+    }
+
+    private void annotateWithAi(Book book, User owner) {
+        if (!owner.isAiFeaturesEnabled()) return;
+        WebPageContent content = metadataFetcher.fetch(book.getUrl())
+            .orElse(new WebPageContent(book.getUrl(), book.getTitle(), book.getSiteName(), null));
+        AiAnalysis analysis = aiService.analyze(content, owner.getId());
+        if (analysis.isEmpty()) return;
+        if (analysis.tags() != null && !analysis.tags().isEmpty()) {
+            book.setTags(new ArrayList<>(analysis.tags()));
+        }
+        if (analysis.summary() != null && !analysis.summary().isBlank()) {
+            // 512 cap matches the column; clip rather than silently drop so we
+            // still get a partial summary if the model overshoots its budget.
+            String summary = analysis.summary();
+            book.setAiSummary(summary.length() > 512 ? summary.substring(0, 512) : summary);
+        }
     }
 
     public BookResponse update(Long userId, Long bookId, UpdateBookRequest req) {
@@ -139,7 +170,9 @@ public class BookService {
             book.getPosition(),
             book.isFavorite(),
             book.getFaviconUrl(),
-            book.getOgImageUrl()
+            book.getOgImageUrl(),
+            book.getTags() == null ? java.util.List.of() : java.util.List.copyOf(book.getTags()),
+            book.getAiSummary()
         );
     }
 }

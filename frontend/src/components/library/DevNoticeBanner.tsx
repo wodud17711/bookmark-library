@@ -54,6 +54,9 @@ export function DevNoticeBanner() {
         </p>
         <p className="text-xs text-(--color-ink-muted) mt-1 leading-relaxed">
           서버가 잠시 끊기거나 에러가 날 수 있어요. 그럴 땐 페이지를 한 번 새로고침해 주세요.
+          <br />
+          🤖 새로 추가하는 책은 Google Gemini가 자동으로 태그·요약을 달아드려요.
+          원치 않으시면 ⚙ 도서관 설정 &gt; 내 계정에서 끌 수 있어요.
         </p>
         <div className="flex gap-4 mt-2.5">
           <button

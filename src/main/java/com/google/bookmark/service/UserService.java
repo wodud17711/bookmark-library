@@ -4,10 +4,13 @@ import com.google.bookmark.domain.Bookshelf;
 import com.google.bookmark.domain.BookshelfZone;
 import com.google.bookmark.domain.Library;
 import com.google.bookmark.domain.User;
+import com.google.bookmark.dto.UpdateMeRequest;
 import com.google.bookmark.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
 @RequiredArgsConstructor
@@ -61,6 +64,15 @@ public class UserService {
         shelf.setZone(zone);
         shelf.setPosition(position);
         return shelf;
+    }
+
+    public User updateSettings(Long userId, UpdateMeRequest req) {
+        User user = userRepository.findById(userId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."));
+        if (req.aiFeaturesEnabled() != null) {
+            user.setAiFeaturesEnabled(req.aiFeaturesEnabled());
+        }
+        return user;
     }
 
     private String generateUniqueUsername(String email) {
