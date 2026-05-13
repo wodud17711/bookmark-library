@@ -14,6 +14,10 @@ export interface Book {
   isFavorite: boolean
   faviconUrl?: string
   ogImageUrl?: string
+  /** AI-generated tags (2-4 items). Empty for pre-AI books or opted-out users. */
+  tags: string[]
+  /** AI-generated 1-2 sentence Korean summary. Null when AI is disabled/failed. */
+  aiSummary?: string
 }
 
 export interface Bookshelf {

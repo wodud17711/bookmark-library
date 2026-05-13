@@ -5,5 +5,6 @@ public record MeResponse(
     String email,
     String displayName,
     String username,
-    String pictureUrl
+    String pictureUrl,
+    boolean aiFeaturesEnabled
 ) {}

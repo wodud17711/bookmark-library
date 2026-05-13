@@ -5,6 +5,7 @@ import {
   type EntranceMood,
   type Library,
 } from '../../api/library'
+import { updateMe, type Me } from '../../api/auth'
 import { fetchThemes, type Theme } from '../../api/themes'
 import { fetchFloorThemes, type FloorTheme } from '../../api/floorThemes'
 import { extractApiErrorMessage } from '../../api/client'
@@ -12,6 +13,8 @@ import { extractApiErrorMessage } from '../../api/client'
 interface Props {
   open: boolean
   library: Library
+  me: Me | null
+  onMeChanged: (me: Me) => void
   onClose: () => void
   onSaved: () => void
 }
@@ -22,7 +25,31 @@ const MOOD_OPTIONS: Array<{ value: EntranceMood; label: string; hint: string }> 
   { value: 'NIGHT', label: '밤', hint: '달빛 아래 차분한 입구' },
 ]
 
-export function LibrarySettingsModal({ open, library, onClose, onSaved }: Props) {
+export function LibrarySettingsModal({
+  open,
+  library,
+  me,
+  onMeChanged,
+  onClose,
+  onSaved,
+}: Props) {
+  const [aiToggling, setAiToggling] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
+
+  const handleAiToggle = async () => {
+    if (!me || aiToggling) return
+    setAiToggling(true)
+    setAiError(null)
+    try {
+      const updated = await updateMe({ aiFeaturesEnabled: !me.aiFeaturesEnabled })
+      onMeChanged(updated)
+    } catch (err) {
+      setAiError(extractApiErrorMessage(err, '설정 변경에 실패했습니다.'))
+    } finally {
+      setAiToggling(false)
+    }
+  }
+
   const [title, setTitle] = useState(library.title)
   const [welcomeMessage, setWelcomeMessage] = useState(library.welcomeMessage ?? '')
   const [entranceMood, setEntranceMood] = useState<EntranceMood>(library.entranceMood)
@@ -224,6 +251,60 @@ export function LibrarySettingsModal({ open, library, onClose, onSaved }: Props)
           </div>
         )}
       </form>
+
+      {/* Sits outside the form so toggling AI doesn't fire the library save.
+          AI is a per-user preference (not per-library) and saves immediately. */}
+      {me && (
+        <div className="mt-7 pt-7 border-t border-(--color-line-soft) space-y-3">
+          <div>
+            <h3 className="text-sm font-semibold text-(--color-ink-strong)">내 계정 · AI 자동 분류</h3>
+            <p className="text-xs text-(--color-ink-muted) mt-0.5">
+              모든 도서관에 공통 적용됩니다. 새로 추가하는 책의 태그·요약에만 영향을 주며 기존 책은 그대로 유지됩니다.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleAiToggle}
+            disabled={aiToggling}
+            className="flex items-start gap-3 w-full text-left p-3 rounded-(--radius-sm) hover:bg-(--color-surface-sunken) transition-colors disabled:opacity-60"
+          >
+            <span
+              className={[
+                'mt-0.5 w-10 h-6 rounded-full p-0.5 transition-colors shrink-0',
+                me.aiFeaturesEnabled ? 'bg-(--color-walnut-500)' : 'bg-(--color-line)',
+              ].join(' ')}
+              role="switch"
+              aria-checked={me.aiFeaturesEnabled}
+              aria-label="AI 자동 분류"
+            >
+              <span
+                className={[
+                  'block w-5 h-5 rounded-full bg-white shadow-sm transition-transform',
+                  me.aiFeaturesEnabled ? 'translate-x-4' : 'translate-x-0',
+                ].join(' ')}
+              />
+            </span>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-(--color-ink-strong)">
+                {me.aiFeaturesEnabled ? '활성화됨' : '비활성화됨'}
+              </p>
+              <p className="text-xs text-(--color-ink-muted) mt-0.5 leading-relaxed">
+                {me.aiFeaturesEnabled
+                  ? '신규 책 추가 시 페이지 제목·본문이 Google Gemini로 전송되어 태그(2~4개)와 요약을 생성합니다.'
+                  : '신규 책 추가 시 외부 AI 호출 없이 그대로 저장됩니다.'}
+              </p>
+            </div>
+          </button>
+          {aiError && (
+            <div
+              role="alert"
+              className="px-3 py-2 rounded-(--radius-sm) bg-(--color-danger)/10 border border-(--color-danger)/30 text-xs text-(--color-danger)"
+            >
+              {aiError}
+            </div>
+          )}
+        </div>
+      )}
     </Modal>
   )
 }

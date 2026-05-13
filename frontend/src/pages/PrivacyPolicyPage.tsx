@@ -9,7 +9,7 @@ import { Link } from 'react-router-dom'
  */
 const OPERATOR_NAME = 'wodud17711'
 const CONTACT_EMAIL = 'jaeyoung17711@gmail.com'
-const EFFECTIVE_DATE = '2026-05-06'
+const EFFECTIVE_DATE = '2026-05-13'
 
 export default function PrivacyPolicyPage() {
   return (
@@ -66,6 +66,11 @@ export default function PrivacyPolicyPage() {
           <li>
             <strong>Google LLC</strong> — OAuth 인증, 이메일/이름/프로필 사진 제공
           </li>
+          <li>
+            <strong>Google LLC (Gemini API)</strong> — 사용자가 등록한 북마크 URL의 제목 및
+            본문 일부를 입력받아 AI 자동 태그·요약 생성. 이용자는 설정 메뉴에서 본 기능을
+            언제든지 비활성화할 수 있으며, 비활성화 시 신규 북마크에 대한 AI 처리가 중지됩니다.
+          </li>
         </ul>
         <p>
           위탁계약 체결 시 위탁업무 수행목적 외 개인정보 처리 금지, 기술적·관리적 보호조치,
@@ -113,6 +118,34 @@ export default function PrivacyPolicyPage() {
             ,{' '}
             <a href="https://railway.com/legal/privacy" target="_blank" rel="noreferrer">
               railway.com/legal/privacy
+            </a>
+          </li>
+        </ul>
+        <p>
+          <strong>(3) Google LLC — Gemini API (생성형 AI 자동 태그·요약)</strong>
+        </p>
+        <ul>
+          <li>이전받는 국가: 미국 (United States)</li>
+          <li>
+            이전 일시 및 방법: 이용자가 북마크를 등록하는 시점에 HTTPS로 즉시 전송, 응답
+            수신 후 외부 저장 없음 (Google의 데이터 처리 방침에 따름)
+          </li>
+          <li>
+            이전 항목: 등록한 북마크 URL, 페이지 제목, 페이지 본문 일부(약 1,500자 이하의
+            발췌)
+          </li>
+          <li>
+            이용 목적 및 보유 기간: 자동 태그·요약 생성 / Google Gemini API 데이터 처리
+            정책에 따름
+          </li>
+          <li>
+            거부 권한: 설정 메뉴의 "AI 자동 분류" 토글로 언제든 비활성화 가능. 비활성화 시
+            기존 책의 태그·요약은 그대로 유지되나 신규 책은 AI 처리 없이 저장됨.
+          </li>
+          <li>
+            연락처:{' '}
+            <a href="https://ai.google.dev/gemini-api/terms" target="_blank" rel="noreferrer">
+              ai.google.dev/gemini-api/terms
             </a>
           </li>
         </ul>

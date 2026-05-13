@@ -306,7 +306,9 @@ public class LibraryService {
             book.getPosition(),
             book.isFavorite(),
             book.getFaviconUrl(),
-            book.getOgImageUrl()
+            book.getOgImageUrl(),
+            book.getTags() == null ? java.util.List.of() : java.util.List.copyOf(book.getTags()),
+            book.getAiSummary()
         );
     }
 }

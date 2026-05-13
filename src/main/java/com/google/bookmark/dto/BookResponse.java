@@ -1,5 +1,7 @@
 package com.google.bookmark.dto;
 
+import java.util.List;
+
 public record BookResponse(
     Long id,
     String url,
@@ -10,5 +12,7 @@ public record BookResponse(
     int position,
     boolean isFavorite,
     String faviconUrl,
-    String ogImageUrl
+    String ogImageUrl,
+    List<String> tags,
+    String aiSummary
 ) {}
