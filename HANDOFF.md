@@ -1,5 +1,88 @@
 # HANDOFF
 
+## [2026-05-14] 여덟 번째 세션 — Cover color picker UX + Chrome import 비동기 AI
+
+전날 cover color 라이브 안착 후 곧바로 후속. 사용자 실사용 피드백 두 개로 시작 — "한 번 picker로 색 고르면 AI 모드로 못 돌아감", "Naver가 다크 브라운으로 들어옴" — 둘 다 해결. 이어서 HANDOFF 2순위였던 PR3 (a) Chrome import 비동기 AI annotation 끝까지 마무리. 라이브 검증까지 완료.
+
+### 오늘 한 일
+
+#### A. Cover color picker AI swatch UX (commit `3351e63`)
+
+**문제**: 어제 cover color 추가 후 사용자가 picker에서 색 한 번 클릭하면 `userPickedColor=true` 영구 → AI 모드로 못 돌아감. 또 Naver 같은 clean brand title 사이트가 AI 호출 자체를 건너뛰던 흐름이라 cover color도 못 받아 lastUsedColor(다크 브라운) 그대로 박힘.
+
+**픽스**:
+- `BookCoverPicker`에 **AI 추천 swatch** 추가 — 보라/파랑 그라데이션 + 흰색 "AI" 텍스트 (Apple Intelligence 스타일). 클릭으로 AI ↔ 수동 토글. 모달 열릴 때 `aiEnabled` 사용자에겐 기본 ON
+- 색 swatch 클릭하면 AI 자동 OFF, AI swatch 다시 클릭하면 ON. 한 번 결정해도 되돌릴 수 있음
+- 화면의 🤖 emoji 모두 제거 (사용자 요청) — picker 라벨, swatch 내부, BookPreview 가운데 책, 결과 패널 헤더, hint 모두 plain 텍스트화. **DevNoticeBanner의 🤖만 유지** (다른 화면 + 의도)
+- `BookService.resolveTitleAndAnnotate`: clean brand title이어도 `autoColor=true`면 AI 호출 유지. smartTitle은 무시(이미 깨끗한 제목 사용), `coverColor`만 적용. `if (haveCleanTitle && !autoColor) return;` 한 줄이 핵심
+
+#### B. PR3 (a) Chrome import 비동기 AI annotation (commit `1866fb7` + `5e0a590`)
+
+**설계 핵심**:
+- 신규 `AsyncConfig` — `@EnableAsync` + 단일 스레드 `ThreadPoolTaskExecutor("aiAnnotator")`. 동시 import N명이어도 1개씩 직렬 처리 → 전체 RPM ~8.5/분 (Gemini Flash-Lite 10 RPM 안전)
+- 신규 `BookAnnotationService.annotateBatchAsync` (`@Async`) + `annotateOne` (`@Transactional`). self-injection (`@Lazy @Autowired`)으로 `@Async` → `@Transactional` proxy 통과
+- per-import **50권 캡** — 처음 50권만 백그라운드 AI annotation, 나머지는 Chrome 원본 title 유지. RPD 500 중 절반만 import에 쓰고 interactive 흐름 여유 보장
+- per-책 7초 sleep — pacing이 진짜 throttle 역할
+- `AiService.analyzeUnthrottled` 메소드 추가 — background는 user RPM limiter 우회 (interactive와 quota 안 다툼)
+- `BookmarkImportService.importToShelves` 반환을 `ImportSummary` → `ImportOutcome(summary, bookIds)`로 변경
+- `BookmarkImportController`가 동기 import 끝나고 fire-and-forget으로 `annotateBatchAsync` 호출. 사용자에겐 즉시 응답
+- Storage 모드는 annotation 안 함 (의도 — 창고 책은 가치 적음)
+- 책별 mini-transaction이라 한 책 실패해도 다음 책 계속 (Notion 403 같은 봇 차단 사이트 swallow 확인)
+- import 모달 SHELVES 옵션 선택 시 안내 추가: "처음 50권은 AI가 천천히 정리해드려요 (6분 정도)"
+- ImportSummary warnings에 50권 캡 안내가 자동 노출
+
+**라이브 검증 결과**: 91권 import → 50권 background annotation → 콘솔에 `[AI annotate] starting batch of 50 books` → 7초 페이스 진행 → `batch complete for user 1 — 48/50 annotated`. 책장 새로고침하면 title/색상 점진 변경 확인. Notion 등 봇 차단 사이트 2건만 fail (예상 범위).
+
+#### C. 모델 운영 안내 카피 (commits `913b618`, `0f88bc0`, `ad1eedb`는 어제 들어감)
+
+당일 머지된 사이드 변경들:
+- LibrarySettingsModal "AI 비활성" 카피 정확화 (HTML title 추출은 AI 토글과 무관)
+- AddBookModal에 "무료 모델이라 시간 걸려요" 안내
+- Gemini 모델 2.5 Flash-Lite → 3.1 Flash-Lite (RPD 20 → 500)
+
+### 현재 상태
+
+**라이브 (origin/main = `5e0a590`)** — 오늘 작업 모두 라이브 반영됨:
+- AI swatch picker UX
+- Naver/clean-brand 색 폴백 픽스
+- Chrome import 비동기 AI annotation (50권 캡, 7초 페이스)
+- import 모달 안내
+
+**관찰된 한계 / variance**:
+- Gemini 3.1 Flash-Lite at temp 0.2도 0% deterministic은 아님 — Naver가 batch에서 한 번 brown으로 나옴 (단건 추가 때는 정확히 #03C75A 잘 나옴). 사용자 의견은 "그냥 받아들이자". 빈도 거슬리면 hardcoded brand lookup table (top 20-30) 추가 가능
+- jsoup이 봇 차단 사이트(Notion 403, Cloudflare-protected) fetch 실패 → 해당 책은 Chrome 원본 title 유지. swallow 정상
+
+### 다음에 이어서 할 일 (다음 세션 후보)
+
+이전 핸드오프 후보 + 오늘 발견된 항목:
+
+| # | 작업 | 추정 | 가치 |
+|---|---|---|---|
+| **C** | **검색/필터 — tags/aiSummary 활용** ★ 추천 1순위 | 0.5일 | 책 30권↑ 사용자에 가시 임팩트. DB에 데이터 쌓이고 있는데 미활용 |
+| **B** | AI 책 추천/관련도서 — 책장 책들 컨텍스트로 "비슷한 책 더" | 1일 | 포폴 흡인력 ★★ |
+| **F** | 유명 브랜드 hardcoded color lookup (Naver variance 픽스) | 0.5일 | top 20-30개 사이트 0% 실패 보장 |
+| **G** | EditBookModal에 "AI 재분석" 버튼 — 사용자가 한 책에 대해 다시 돌리기 | 0.5일 | 한 번 잘못 나온 책 즉시 재시도 |
+| **D** | favicon 색 추출 폴백 — theme-color/AI도 없는 사이트 | 0.5일 | ★ |
+| **H** | per-import 진행률 UI (today 보류했음) | 1일 | UX 인지도 |
+| **E** | 동적 OG 이미지 — 보류 그대로 | 1.5일 | 공유 임팩트 |
+
+**제 추천: C → B (또는 F+G 묶어서)**. C는 데이터 자산 활용도 + 사용성 즉각 효과. B는 포폴 인상 강화.
+
+### 미해결 이슈 / 막힌 지점
+
+없음. 오늘 모든 작업 라이브 검증까지 완료.
+
+### 컨텍스트 / 주의사항
+
+- **AsyncConfig 단일 스레드 = 전체 throttle** — 절대 여러 스레드로 늘리지 말 것. RPM 안전망이 깨짐. 동시성 늘리려면 별도 RPS 토큰버킷 만들어야 함
+- **`@Async` + `@Transactional` 같은 클래스에 두려면 self-injection 필수** — 직접 호출하면 proxy 우회로 트랜잭션 안 열림. `BookAnnotationService.self` 패턴 그대로 따를 것
+- **`analyzeUnthrottled`는 background 전용** — interactive 호출이 이걸 쓰면 사용자 RPM 보호망 무너짐. AddBookModal 흐름은 계속 `analyze`(throttled) 사용
+- **50권 캡은 AI_ANNOTATION_CAP 상수** ([BookmarkImportService.java](src/main/java/com/google/bookmark/service/BookmarkImportService.java)). 라이브 사용자 늘면 RPD 모니터링하면서 조정. 100권 캡으로 올리면 5명 동시 = 500 RPD 다 씀
+- **vite proxy 8081 ↔ 8082 토글 패턴**: worktree 백엔드 검증할 땐 8082, 머지 전 8081 복원. 이젠 익숙해진 흐름
+- **Gemini variance 받아들임 결정** (오늘 사용자 합의) — 향후 hardcoded brand lookup 옵션 F 살아있음
+
+---
+
 ## [2026-05-13 오후] 일곱 번째 세션 — AI 흐름 재설계 (smart title + cover color)
 
 여섯 번째 세션 끝나고 같은 날 이어서 — 책장 행에 태그 칩 + 요약 줄 노출(PR3 (b) A안)을 먼저 구현해 라이브로 보다가, 시각상 행이 두꺼워지고 작은 태그가 큰 가치 없다는 사용자 피드백으로 방향 전환. AI 결과 노출을 **태그/요약 줄 → "책 제목 자체를 똑똑하게 짓기"** 로 피벗. 같은 호출에 cover color까지 묶어 한 호출로 두 가치 동시 제공.
