@@ -1,5 +1,88 @@
 # HANDOFF
 
+## [2026-05-14 오후] 아홉 번째 세션 — 동적 OG 이미지 (per-library 책 spine)
+
+여덟 번째 세션 끝나고 같은 날 이어서. vision 메모리 "보류된 미작업" 1순위였던 동적 OG 이미지 처리. v1 사양(캐시 + URL bust + fallback) 그대로 + 라이브 첫 검증 후 디자인 보강 한 번 거쳐 안착.
+
+### 오늘 한 일
+
+#### A. 박제 동작 사전 검토
+
+사용자 질문: "공유 시점 도서관 모습이 박제되나?"
+- **A안 채택**: 항상 최신 도서관 상태 렌더. 친구가 받은 SNS 메시지의 미리보기는 SNS측 캐시(트위터 ~7일, 디스코드 영구, 카카오톡 자체 캐시)가 박제해줌. 우리 서버 동작과 독립
+- **B안 폐기**: "공유 시점 별도 스냅샷 저장" — 2026-05-07에 이미 `Library.ogImage byte[]` PG 한도 이슈로 제거한 이력 있음. 같은 함정
+- **C안 폐기**: 사용자가 명시적 "박제 버튼" 누르는 모드 — 거의 안 쓸 듯
+- 향후 약관/FAQ에 "SNS 측 캐시 만료 후 재unfurl되면 그 시점 도서관 상태 반영" 한 줄 안내 가능. 이번엔 미룸
+
+#### B. 1차 구현 — per-library 렌더 + Caffeine 캐시 (commit `490e467`)
+
+신규 파일 1 + 수정 5:
+- `OgBannerRenderer` (NEW) — per-library 렌더러 + Caffeine 캐시
+  - PUBLIC 책장의 책을 favorite 우선 + position 정렬로 최대 10권 수집
+  - 책 3권 미만이면 fallback 배너 (sparse 미리보기 회피)
+  - 책별 `coverColor` 그대로 spine, 텍스트 없음 (한글 폰트 의존 회피)
+  - Caffeine maxSize 500, expireAfterWrite 5분
+  - `@Transactional(readOnly=true)` — cache-miss 콜백의 lazy bookshelves/books 그래프 안전 접근
+- `LibraryService.updateLibrary` 끝에 `ogBannerRenderer.evict(id)` 호출
+- `LibraryService.findPublicLibraryByUsernameAndSlug` 신설
+- `OgImageController` — fallback 직접 반환 → 렌더러 호출
+- `PublicLibraryHtmlController` — og:image URL에 `?v={updatedAt.toEpochMilli()}` 추가
+  - 도서관 자체 변경 시 URL이 바뀌어 SNS측 unfurl 캐시 무효화
+  - 책만 변경된 경우 ?v는 그대로 → SNS 자기 캐시 사용 (자연스러운 박제)
+- `LibraryOgMetadata` — `libraryId`, `updatedAt` 필드 추가
+- `build.gradle` — `com.github.ben-manes.caffeine:caffeine` 추가
+
+#### C. 라이브 검증 후 디자인 보강 (commit `c5a5ead`)
+
+1차 라이브에서 5권 도서관이 휑하게 나옴 — spine 80px + gap 28px 고정이라 책 영역이 캔버스의 43%만 차지. 두 가지 손봄:
+- **spine 폭/gap 가변** — N권을 N슬롯으로 분배, 슬롯의 70% spine + 30% gap, spine 60~120 / gap 20~80 clamp. 3권도 10권도 균형
+- **책장 wood 띠** — spine 발치에 캔버스 가로 끝까지 wood 24px + 그림자 3px. 색은 도서관 첫 PUBLIC 책장의 `woodColor`. "벽 선반에 책 꽂힌" 도서관 메타포 강화. `darker(c, 0.6)` 헬퍼로 그림자 자동 계산
+
+라이브 시각 검증 결과 (localhost 8081 본인 도서관):
+1. library-2 (Chrome import 91권, 다크월넛 통일) — spine 10개 + wood 띠 OK
+2. 색 다양한 5권 도서관 — 초록/파랑/빨강/검정/회색 정확히 박힘 (`parseHexOrFallback` 정상)
+3. 색 다양 10권 도서관 — favorite 우선 정렬로 색 있는 책이 좌측, 다크월넛이 우측
+4. wood 띠 + 그림자 라인 + 위/아래 walnut 띠 — 책장 느낌 살아남
+
+### 현재 상태
+
+**라이브 (origin/main, 푸시 후)**:
+- 모든 PUBLIC 도서관 OG 미리보기가 본인 책 spine으로 동적 렌더
+- Caffeine 5분 TTL — 책 추가/수정 후 5분 안에 자동 반영
+- 도서관 자체 변경(제목/팔레트/공개 토글/환영 메시지) 시 즉시 evict + URL bust
+- Spring Boot 4 호환 OK, jsoup/jackson과 conflict 없음
+
+### 다음에 이어서 할 일
+
+8세션 표 + 오늘 완료 항목 제외:
+
+| # | 작업 | 추정 | 가치 |
+|---|---|---|---|
+| ~~E~~ | ~~동적 OG 이미지~~ | ✅ | 완료 (이번 세션) |
+| **C** | 검색/필터 — tags/aiSummary 활용 ★ 추천 1순위 | 0.5일 | 가시 임팩트, 데이터 자산 활용 |
+| **B** | AI 책 추천/관련도서 | 1일 | 포폴 임팩트 ★★ |
+| **F** | 유명 브랜드 hardcoded color lookup | 0.5일 | Naver variance 픽스 |
+| **G** | EditBookModal AI 재분석 버튼 | 0.5일 | variance 즉시 복구 |
+| **D** | favicon 색 추출 폴백 | 0.5일 | theme-color/AI 둘 다 없는 사이트 |
+| **H** | per-import 진행률 UI | 1일 | UX 인지도 |
+
+**추천**: C → B (또는 F+G 묶음 — color variance 보완 세트).
+
+### 미해결 이슈 / 막힌 지점
+
+없음. 모든 작업 라이브 검증 완료.
+
+### 컨텍스트 / 주의사항
+
+- **Book/Bookshelf 변경 시 evict 후크 없음** — 5분 TTL로 대체. 사용자 급증 시 옵션: BookService/BookshelfService/StoredBookService 3곳에 `ogBannerRenderer.evict(book.getBookshelf().getLibrary().getId())` 한 줄씩 박으면 됨. 또는 EntityListener 패턴
+- **wood 띠 색 = 도서관 첫 PUBLIC 책장의 `woodColor`** — 책장이 여러 개여도 한 색만 사용. "단일 책장 아닌 도서관 한 통" 메타포 의도. 향후 multi-shelf wood로 갈 수도 있지만 시각 복잡도 ↑
+- **렌더 비용** — BufferedImage draw + PNG encode ~30ms. Caffeine hit는 µs 단위. SNS 한 번 unfurl 후 그 결과로 박제되니 실질 비용 무시 가능
+- **Spring Boot 4 슬림 starter 패턴** — `starter-cache` 안 쓰고 Caffeine 라이브러리 직접 (`LoadingCache`/`Cache` 인스턴스). `@Cacheable` 어노테이션 미사용. 다른 캐시 추가 시 같은 패턴 따를 것
+- **fallback 배너 그대로 유지** — `OgFallbackBannerProvider`는 책 3권 미만 도서관 + 렌더 실패 시 안전망. 삭제 X
+- **`?v=` 는 `library.updatedAt`만 본다** — 책 변경은 ?v 못 바꿈. 의도: 책 추가/삭제로 SNS측 캐시 무효화하지 않음(자연 박제). 도서관 손질했을 때만 새 미리보기 트리거
+
+---
+
 ## [2026-05-14] 여덟 번째 세션 — Cover color picker UX + Chrome import 비동기 AI
 
 전날 cover color 라이브 안착 후 곧바로 후속. 사용자 실사용 피드백 두 개로 시작 — "한 번 picker로 색 고르면 AI 모드로 못 돌아감", "Naver가 다크 브라운으로 들어옴" — 둘 다 해결. 이어서 HANDOFF 2순위였던 PR3 (a) Chrome import 비동기 AI annotation 끝까지 마무리. 라이브 검증까지 완료.
