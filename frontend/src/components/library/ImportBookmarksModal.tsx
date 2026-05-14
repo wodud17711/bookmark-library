@@ -266,6 +266,14 @@ export function ImportBookmarksModal({ open, onClose, onImported }: Props) {
             </div>
           </div>
 
+          {mode === 'SHELVES' && (
+            <p className="text-xs text-(--color-ink-faint) leading-relaxed bg-(--color-surface-sunken) rounded-(--radius-xs) px-3 py-2.5">
+              처음 50권은 AI가 백그라운드에서 제목과 색상을 천천히 정리해드려요.
+              책은 먼저 책장에 꽂히고, 잠시 후 새로고침하면 정리된 모습이 보여요.
+              (무료 모델 사용 중이라 50권 처리에 6분 정도 걸려요)
+            </p>
+          )}
+
           {error && <p className="text-sm text-(--color-danger)">{error}</p>}
         </div>
       )}
