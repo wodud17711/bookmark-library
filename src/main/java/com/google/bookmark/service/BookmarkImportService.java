@@ -7,8 +7,10 @@ import com.google.bookmark.domain.Library;
 import com.google.bookmark.domain.StoredBook;
 import com.google.bookmark.domain.User;
 import com.google.bookmark.dto.ImportEntry;
+import com.google.bookmark.dto.ImportOutcome;
 import com.google.bookmark.dto.ImportRequest;
 import com.google.bookmark.dto.ImportSummary;
+import com.google.bookmark.repository.BookRepository;
 import com.google.bookmark.repository.LibraryRepository;
 import com.google.bookmark.repository.StoredBookRepository;
 import com.google.bookmark.repository.UserRepository;
@@ -31,14 +33,23 @@ import java.util.Set;
 public class BookmarkImportService {
 
     private static final int MAX_BOOKS_PER_SHELF = 30;
+    /**
+     * Hard cap on how many freshly-imported books receive AI annotation in
+     * the background. Larger imports keep their import-time titles on the
+     * tail end. Sized to leave headroom in Gemini's daily 500-RPD budget for
+     * interactive add-book calls — see AsyncConfig comment for the math.
+     * Storage mode skips annotation entirely.
+     */
+    private static final int AI_ANNOTATION_CAP = 50;
 
     private final UserRepository userRepository;
     private final LibraryRepository libraryRepository;
     private final StoredBookRepository storedBookRepository;
+    private final BookRepository bookRepository;
 
-    public ImportSummary importBookmarks(Long userId, ImportRequest request) {
+    public ImportOutcome importBookmarks(Long userId, ImportRequest request) {
         return switch (request.mode()) {
-            case "STORAGE" -> importToStorage(userId, request.entries());
+            case "STORAGE" -> ImportOutcome.of(importToStorage(userId, request.entries()));
             case "SHELVES" -> importToShelves(userId, request.libraryId(), request.entries());
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown mode: " + request.mode());
         };
@@ -61,7 +72,7 @@ public class BookmarkImportService {
         return new ImportSummary("STORAGE", 0, 0, entries.size(), List.of());
     }
 
-    private ImportSummary importToShelves(Long userId, Long libraryId, List<ImportEntry> entries) {
+    private ImportOutcome importToShelves(Long userId, Long libraryId, List<ImportEntry> entries) {
         Library library = resolveTargetLibrary(userId, libraryId);
         User user = library.getUser();
 
@@ -95,6 +106,10 @@ public class BookmarkImportService {
         int booksImported = 0;
         int storedCount = 0;
         List<String> warnings = new ArrayList<>();
+        // First N freshly-imported Book entities — picked up after flush()
+        // so they have generated IDs. Background AI annotation processes
+        // these in order; the rest keep their import-time Chrome titles.
+        List<Book> annotateCandidates = new ArrayList<>();
 
         // Iterate groups in first-seen order. For each, plan how many shelves it would consume
         // (1 + chunks of 30). If it fits in remaining slots, create them. Otherwise, route the
@@ -136,9 +151,11 @@ public class BookmarkImportService {
                 library.addBookshelf(shelf);
 
                 // Bypasses BookService.create on purpose — running AI tagging
-                // for a 100+ book Chrome import would block for ~10 min on the
-                // per-user RPM cap and drain the daily Gemini quota. Async
-                // background annotation is tracked for PR3.
+                // synchronously for a 100+ book Chrome import would block the
+                // request for ~10 min and drain the daily Gemini quota in one
+                // shot. Books are persisted with their import-time Chrome
+                // metadata; the first AI_ANNOTATION_CAP get queued for the
+                // background annotator (BookAnnotationService) below.
                 int position = 0;
                 for (ImportEntry e : chunk) {
                     Book book = new Book();
@@ -149,6 +166,9 @@ public class BookmarkImportService {
                     book.setPosition(position++);
                     shelf.getBooks().add(book);
                     booksImported++;
+                    if (annotateCandidates.size() < AI_ANNOTATION_CAP) {
+                        annotateCandidates.add(book);
+                    }
                 }
 
                 shelvesCreated++;
@@ -162,7 +182,20 @@ public class BookmarkImportService {
             }
         }
 
-        return new ImportSummary("SHELVES", booksImported, shelvesCreated, storedCount, warnings);
+        // Flush so cascaded Book entities receive their generated IDs before
+        // we extract them for the background annotator.
+        bookRepository.flush();
+        List<Long> annotateIds = annotateCandidates.stream().map(Book::getId).toList();
+        if (booksImported > AI_ANNOTATION_CAP) {
+            warnings.add(String.format(
+                "AI 자동 정리는 처음 %d권만 백그라운드에서 진행돼요. 나머지 %d권은 가져온 그대로 들어왔어요. " +
+                    "(책을 클릭하면 직접 정리할 수 있어요)",
+                AI_ANNOTATION_CAP, booksImported - AI_ANNOTATION_CAP
+            ));
+        }
+
+        ImportSummary summary = new ImportSummary("SHELVES", booksImported, shelvesCreated, storedCount, warnings);
+        return new ImportOutcome(summary, annotateIds);
     }
 
     /**

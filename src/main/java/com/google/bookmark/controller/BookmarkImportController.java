@@ -1,8 +1,10 @@
 package com.google.bookmark.controller;
 
+import com.google.bookmark.dto.ImportOutcome;
 import com.google.bookmark.dto.ImportRequest;
 import com.google.bookmark.dto.ImportSummary;
 import com.google.bookmark.security.UserPrincipal;
+import com.google.bookmark.service.BookAnnotationService;
 import com.google.bookmark.service.BookmarkImportService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +22,7 @@ import org.springframework.web.server.ResponseStatusException;
 public class BookmarkImportController {
 
     private final BookmarkImportService importService;
+    private final BookAnnotationService annotationService;
 
     @PostMapping("/import")
     public ImportSummary importBookmarks(
@@ -29,6 +32,16 @@ public class BookmarkImportController {
         if (principal == null) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
         }
-        return importService.importBookmarks(principal.getUserId(), request);
+        ImportOutcome outcome = importService.importBookmarks(principal.getUserId(), request);
+        // Hand the freshly-imported book IDs to the background annotator and
+        // return immediately. The user sees the import summary right away;
+        // titles/colors fill in over the next minutes as the queue drains.
+        if (!outcome.bookIdsForAnnotation().isEmpty()) {
+            annotationService.annotateBatchAsync(
+                outcome.bookIdsForAnnotation(),
+                principal.getUserId()
+            );
+        }
+        return outcome.summary();
     }
 }

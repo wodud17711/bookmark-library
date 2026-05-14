@@ -60,7 +60,21 @@ public class GeminiAiService implements AiService {
             log.info("AI analyze rate-limited for user {}", userId);
             return AiAnalysis.empty();
         }
+        return doAnalyze(content);
+    }
 
+    @Override
+    public AiAnalysis analyzeUnthrottled(WebPageContent content, Long userId) {
+        if (!props.isOperational()) {
+            return AiAnalysis.empty();
+        }
+        if (content == null) {
+            return AiAnalysis.empty();
+        }
+        return doAnalyze(content);
+    }
+
+    private AiAnalysis doAnalyze(WebPageContent content) {
         try {
             String requestBody = buildRequestBody(content);
             HttpRequest request = HttpRequest.newBuilder()

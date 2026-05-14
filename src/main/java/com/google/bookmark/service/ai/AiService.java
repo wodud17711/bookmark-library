@@ -19,4 +19,12 @@ public interface AiService {
      * optional and never assume both are populated.
      */
     AiAnalysis analyze(WebPageContent content, Long userId);
+
+    /**
+     * Same as {@link #analyze} but skips the per-user RPM rate limiter — for
+     * background batch jobs that pace themselves and shouldn't compete with
+     * interactive add-book calls for the user's per-minute quota. Caller
+     * owns pacing responsibility; abusing this drains the global Gemini RPD.
+     */
+    AiAnalysis analyzeUnthrottled(WebPageContent content, Long userId);
 }
