@@ -50,9 +50,19 @@ public class OgBannerRenderer {
     private static final int BAND_HEIGHT = 64;
     private static final int MAX_SPINES = 10;
     private static final int MIN_SPINES_FOR_RENDER = 3;
+    /** Horizontal play area for spines; 100px margin each side keeps the
+     *  composition centered even when very few books are drawn. */
+    private static final int USABLE_WIDTH = 1000;
+    private static final int SPINE_W_MIN = 60;
+    private static final int SPINE_W_MAX = 120;
+    private static final int GAP_MIN = 20;
+    private static final int GAP_MAX = 80;
+    private static final int SHELF_THICKNESS = 24;
+    private static final int SHELF_SHADOW = 3;
     private static final Color CREAM = new Color(0xFA, 0xF7, 0xF2);
     private static final Color WALNUT = new Color(0x8B, 0x5A, 0x3C);
     private static final Color FALLBACK_SPINE = new Color(0x3D, 0x28, 0x17);
+    private static final String DEFAULT_WOOD_HEX = "#8B5A3C";
 
     private final LibraryRepository libraryRepository;
     private final OgFallbackBannerProvider fallbackBanner;
@@ -92,12 +102,22 @@ public class OgBannerRenderer {
         if (libOpt.isEmpty() || !libOpt.get().isPublic()) {
             return fallbackBanner.getBytes();
         }
-        List<Book> books = collectPublicBooks(libOpt.get());
+        Library library = libOpt.get();
+        List<Book> books = collectPublicBooks(library);
         if (books.size() < MIN_SPINES_FOR_RENDER) {
             return fallbackBanner.getBytes();
         }
+        // First PUBLIC shelf's woodColor — books across shelves share one shelf
+        // band in the banner so it reads as a single library, not a stack of
+        // shelves. Defaults to walnut when no PUBLIC shelf is present (shouldn't
+        // happen given the MIN_SPINES guard above, but safe).
+        String woodHex = library.getBookshelves().stream()
+            .filter(s -> s.getZone() == BookshelfZone.PUBLIC)
+            .map(Bookshelf::getWoodColor)
+            .findFirst()
+            .orElse(DEFAULT_WOOD_HEX);
         try {
-            return drawSpines(books);
+            return drawSpines(books, parseHexOrFallback(woodHex));
         } catch (IOException e) {
             log.warn("OG banner render failed for library {} — serving fallback", libraryId, e);
             return fallbackBanner.getBytes();
@@ -123,7 +143,7 @@ public class OgBannerRenderer {
             : publicBooks;
     }
 
-    private byte[] drawSpines(List<Book> books) throws IOException {
+    private byte[] drawSpines(List<Book> books, Color woodColor) throws IOException {
         BufferedImage img = new BufferedImage(WIDTH, HEIGHT, BufferedImage.TYPE_INT_RGB);
         Graphics2D g = img.createGraphics();
         try {
@@ -136,17 +156,21 @@ public class OgBannerRenderer {
             g.fillRect(0, 0, WIDTH, BAND_HEIGHT);
             g.fillRect(0, HEIGHT - BAND_HEIGHT, WIDTH, BAND_HEIGHT);
 
-            int spineCount = books.size();
-            int spineW = 80;
-            int gap = 28;
-            int totalW = spineCount * spineW + (spineCount - 1) * gap;
+            int n = books.size();
+            // Distribute the usable width as N "slots"; each slot is ~70% spine,
+            // ~30% gap. Clamps keep small libraries from drawing absurdly thick
+            // panels and large libraries from drawing pencil-thin slivers.
+            int slot = USABLE_WIDTH / n;
+            int spineW = clamp((int) (slot * 0.70), SPINE_W_MIN, SPINE_W_MAX);
+            int gap = n > 1 ? clamp((int) (slot * 0.30), GAP_MIN, GAP_MAX) : 0;
+            int totalW = n * spineW + (n - 1) * gap;
             int startX = (WIDTH - totalW) / 2;
             int floorY = HEIGHT - BAND_HEIGHT - 30;
 
             // Heights pseudo-vary by book id so different libraries draw distinct
             // silhouettes without dragging in extra fields. Same library reliably
             // renders the same layout (id is stable).
-            for (int i = 0; i < spineCount; i++) {
+            for (int i = 0; i < n; i++) {
                 Book book = books.get(i);
                 int height = 220 + (int) (Math.abs((book.getId() == null ? i : book.getId()) * 37L) % 100);
                 int x = startX + i * (spineW + gap);
@@ -159,12 +183,32 @@ public class OgBannerRenderer {
                 g.setColor(new Color(255, 255, 255, 30));
                 g.fillRoundRect(x + 6, y + 14, 6, height - 28, 4, 4);
             }
+
+            // Bookshelf board the spines sit on — full canvas width so it reads
+            // as a wall-mounted shelf running the room's length, not a tray
+            // tucked under the books. Color comes from the owner's shelf theme.
+            g.setColor(woodColor);
+            g.fillRect(0, floorY, WIDTH, SHELF_THICKNESS);
+            g.setColor(darker(woodColor, 0.6));
+            g.fillRect(0, floorY + SHELF_THICKNESS, WIDTH, SHELF_SHADOW);
         } finally {
             g.dispose();
         }
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         ImageIO.write(img, "PNG", baos);
         return baos.toByteArray();
+    }
+
+    private static int clamp(int v, int min, int max) {
+        return Math.max(min, Math.min(max, v));
+    }
+
+    private static Color darker(Color c, double factor) {
+        return new Color(
+            clamp((int) (c.getRed() * factor), 0, 255),
+            clamp((int) (c.getGreen() * factor), 0, 255),
+            clamp((int) (c.getBlue() * factor), 0, 255)
+        );
     }
 
     private static Color parseHexOrFallback(String hex) {
