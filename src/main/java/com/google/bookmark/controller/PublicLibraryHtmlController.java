@@ -94,7 +94,14 @@ public class PublicLibraryHtmlController {
     private String buildOgImageUrl(HttpServletRequest request, LibraryOgMetadata m) {
         String origin = request.getScheme() + "://" + request.getServerName()
             + (isDefaultPort(request) ? "" : ":" + request.getServerPort());
-        return origin + "/og/" + urlSegment(m.ownerUsername()) + "/" + urlSegment(m.slug());
+        // ?v={updatedAt-epoch} forces SNS unfurlers (Twitter, Discord, KakaoTalk)
+        // to fetch a fresh preview once the owner edits the library — same image
+        // URL with new query string = cache miss on their side. Books-only edits
+        // surface via the renderer's 5-minute Caffeine TTL; library-level edits
+        // bump updatedAt and bust the URL immediately.
+        long version = m.updatedAt() != null ? m.updatedAt().toEpochMilli() : 0L;
+        return origin + "/og/" + urlSegment(m.ownerUsername()) + "/" + urlSegment(m.slug())
+            + "?v=" + version;
     }
 
     private static boolean isDefaultPort(HttpServletRequest request) {

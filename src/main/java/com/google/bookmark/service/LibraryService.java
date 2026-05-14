@@ -31,6 +31,7 @@ public class LibraryService {
 
     private final LibraryRepository libraryRepository;
     private final UserRepository userRepository;
+    private final OgBannerRenderer ogBannerRenderer;
 
     // ─── Read ────────────────────────────────────────────
 
@@ -146,6 +147,7 @@ public class LibraryService {
         return libraryRepository.findByUserUsernameAndSlug(username, slug)
             .filter(Library::isPublic)
             .map(lib -> new LibraryOgMetadata(
+                lib.getId(),
                 lib.getTitle(),
                 lib.getWelcomeMessage(),
                 lib.getUser().getUsername(),
@@ -153,8 +155,20 @@ public class LibraryService {
                 lib.getSlug(),
                 (int) lib.getBookshelves().stream()
                     .filter(s -> s.getZone() == BookshelfZone.PUBLIC)
-                    .count()
+                    .count(),
+                lib.getUpdatedAt()
             ));
+    }
+
+    /**
+     * Resolves a public library by username + slug for the OG image endpoint.
+     * Returns empty for both not-found and private — same 404 behavior as
+     * {@link #isPublicLibraryPresent(String, String)} but exposes the entity
+     * so {@code OgBannerRenderer} can iterate its bookshelves/books.
+     */
+    public Optional<Library> findPublicLibraryByUsernameAndSlug(String username, String slug) {
+        return libraryRepository.findByUserUsernameAndSlug(username, slug)
+            .filter(Library::isPublic);
     }
 
     // ─── Internal ────────────────────────────────────────
@@ -178,6 +192,10 @@ public class LibraryService {
         if (request.isPublic() != null) {
             library.setPublic(request.isPublic());
         }
+        // Library-level edits bust both the in-process OG cache and (via the
+        // bumped updatedAt seeding ?v=) SNS-side unfurl caches. Book/shelf-level
+        // edits surface within the renderer's 5-minute TTL without explicit eviction.
+        ogBannerRenderer.evict(library.getId());
         return toResponse(library);
     }
 

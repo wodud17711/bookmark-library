@@ -33,6 +33,10 @@ dependencies {
 	// it in, but GeminiAiService needs ObjectMapper to build the structured-
 	// output request body and parse responses.
 	implementation 'org.springframework.boot:spring-boot-starter-json'
+	// Caffeine — in-process cache for per-library OG banners. Renders are
+	// expensive enough (BufferedImage draw + PNG encode) to justify, and SNS
+	// crawlers re-hit the same URL on every share.
+	implementation 'com.github.ben-manes.caffeine:caffeine'
 	compileOnly 'org.projectlombok:lombok'
 	runtimeOnly 'com.h2database:h2'
 	runtimeOnly 'org.postgresql:postgresql'
