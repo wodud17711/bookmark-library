@@ -31,10 +31,13 @@ export function AddBookModal({
   const [url, setUrl] = useState('')
   const [title, setTitle] = useState('')
   const [coverColor, setCoverColor] = useState('#3D2817')
-  // Tracks whether the user clicked the BookCoverPicker. False means the
-  // current coverColor is just the lastUsedColor default — backend may then
-  // override it with theme-color/AI suggestion when going through the AI flow.
-  const [userPickedColor, setUserPickedColor] = useState(false)
+  // True when the "🤖 AI 추천" swatch is the active selection in the picker.
+  // Defaults to true when AI is enabled (so opening the modal and submitting
+  // without touching anything still triggers the AI color path), but the user
+  // can flip it off by picking any color, then re-enable by clicking the AI
+  // swatch again — solves the "I picked a color and now I'm locked out of AI"
+  // friction.
+  const [aiPickActive, setAiPickActive] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // After successful create we keep the modal open for a moment to surface
@@ -48,7 +51,7 @@ export function AddBookModal({
   useEffect(() => {
     if (open) {
       setCoverColor(lastUsedColor())
-      setUserPickedColor(false)
+      setAiPickActive(aiEnabled)
     } else {
       setUrl('')
       setTitle('')
@@ -56,7 +59,7 @@ export function AddBookModal({
       setCreatedBook(null)
       setColorAutoApplied(false)
     }
-  }, [open])
+  }, [open, aiEnabled])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -82,7 +85,7 @@ export function AddBookModal({
         url: normalizedUrl,
         title: trimmedTitle || undefined,
         coverColor,
-        coverColorAutoPicked: !userPickedColor,
+        coverColorAutoPicked: aiPickActive,
       })
       // Remember the actual color persisted on the book (which may have been
       // upgraded by AI/theme-color) so the next add-modal opens with that.
@@ -93,10 +96,11 @@ export function AddBookModal({
       // If they typed their own title, AI didn't run (or didn't override) and
       // there's nothing new to surface.
       if (aiEnabled && !trimmedTitle) {
-        // Color counts as "AI applied" when the persisted hex differs from
-        // what we sent. Catches both the theme-color and AI-color paths.
+        // Color counts as "AI applied" when the AI swatch was active AND the
+        // persisted hex differs from the lastUsedColor baseline we sent.
+        // Catches both the theme-color and AI-color paths.
         setColorAutoApplied(
-          !userPickedColor &&
+          aiPickActive &&
             book.coverColor.toUpperCase() !== coverColor.toUpperCase(),
         )
         setCreatedBook(book)
@@ -166,15 +170,15 @@ export function AddBookModal({
         />
         <BookCoverPicker
           value={coverColor}
-          onChange={(c) => {
-            setCoverColor(c)
-            setUserPickedColor(true)
-          }}
+          onChange={setCoverColor}
+          aiPickActive={aiEnabled ? aiPickActive : undefined}
+          onAiPickChange={aiEnabled ? setAiPickActive : undefined}
         />
         {aiEnabled && !title.trim() && (
           <p className="text-xs text-(--color-ink-faint) leading-relaxed">
-            🤖 제목을 비우면 AI가 페이지를 읽고 짧은 제목과 어울리는 책 색상까지 골라드려요.
-            무료 모델을 사용 중이라 시간이 좀 걸릴 수 있어요. (설정에서 끌 수 있어요)
+            제목을 비우면 AI가 페이지를 읽고 짧은 제목을 골라드려요.
+            {aiPickActive ? ' 색상도 같이 골라드려요.' : ''}
+            {' '}무료 모델을 사용 중이라 시간이 좀 걸릴 수 있어요. (설정에서 끌 수 있어요)
           </p>
         )}
       </form>
@@ -186,7 +190,7 @@ function AiResultPanel({ book, colorAutoApplied }: { book: Book; colorAutoApplie
   return (
     <div className="space-y-3">
       <p className="text-xs uppercase tracking-wide text-(--color-walnut-500) font-semibold">
-        🤖 AI가 골라준 제목
+        AI가 골라준 제목
       </p>
       <div
         className="flex items-stretch gap-3 bg-(--color-surface-sunken) rounded-md px-3 py-2.5"

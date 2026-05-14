@@ -96,27 +96,35 @@ public class BookService {
         }
 
         // Clean brand-style page titles (short, no chained separators) are
-        // already what we want — skip the AI call and save quota. Color
-        // already settled via theme-color (or stays as user's lastUsedColor).
-        if (isCleanBrandTitle(fetchedTitle)) {
+        // already what we want — we'll keep this title even if AI runs below.
+        boolean haveCleanTitle = isCleanBrandTitle(fetchedTitle);
+        if (haveCleanTitle) {
             book.setTitle(fetchedTitle.trim());
-            return;
         }
 
         if (!owner.isAiFeaturesEnabled()) {
-            book.setTitle(fallbackTitle(fetchedTitle, url));
+            if (!haveCleanTitle) book.setTitle(fallbackTitle(fetchedTitle, url));
             return;
         }
+
+        // RPM saver: skip AI only when there's nothing left for it to do —
+        // title is already clean AND user didn't ask for AI color. Otherwise
+        // call AI; we may need just the color (clean brand site like naver.com
+        // with no theme-color) or both title and color (messy chained title).
+        if (haveCleanTitle && !autoColor) return;
 
         // Best-effort AI annotation. Failures (fetch timeout, Gemini quota,
         // parse error) come back as AiAnalysis.empty() so we still get a title.
         AiAnalysis analysis = aiService.analyze(content, owner.getId());
-        String smart = analysis.smartTitle();
-        if (smart != null && !smart.isBlank()) {
-            String trimmed = smart.trim();
-            book.setTitle(trimmed.length() > 256 ? trimmed.substring(0, 256) : trimmed);
-        } else {
-            book.setTitle(fallbackTitle(fetchedTitle, url));
+
+        if (!haveCleanTitle) {
+            String smart = analysis.smartTitle();
+            if (smart != null && !smart.isBlank()) {
+                String trimmed = smart.trim();
+                book.setTitle(trimmed.length() > 256 ? trimmed.substring(0, 256) : trimmed);
+            } else {
+                book.setTitle(fallbackTitle(fetchedTitle, url));
+            }
         }
 
         // AI-suggested color overrides theme-color when present. Already hex-
