@@ -276,13 +276,14 @@ function drawScene(
   // plus a MULTIPLY ambient overlay that tints the whole canvas to the
   // time-of-day mood. Ticker callback drives flicker + dust + lerp.
   //
-  // windowWidth scales with canvas — fixed 244 was too narrow on 1100+ wide
-  // canvases (cone shrank to ~15% of width vs ~30% in the design reference).
-  // 28% gives a more cinematic spread without dominating phones.
+  // Parameters match the upstream design reference verbatim:
+  //   windowWidth: 244, maxReach: 560, dustCount: 32, y: 12
+  // Phones cap windowWidth to canvas * 0.45 so the cone doesn't dominate
+  // when the canvas is narrower than 540px.
   const light = new EntranceLight(app, {
     x: W / 2,
     y: 12,
-    windowWidth: portrait ? Math.min(280, W * 0.42) : Math.min(360, W * 0.28),
+    windowWidth: portrait ? Math.min(244, W * 0.45) : 244,
     maxReach: Math.min(H * 0.88, 560),
     dustCount: portrait ? 24 : 32,
   })
