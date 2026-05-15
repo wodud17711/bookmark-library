@@ -272,6 +272,11 @@ function drawScene(
     drawPrivateDoor(stage, W, H, shelf, floor, p, portrait)
   }
 
+  // Window frame at the top — gives the entrance light a tangible source so
+  // it reads as "sunlight through a window" instead of an unexplained glow.
+  // Sits BELOW the ambient overlay so it tints with the time-of-day mood.
+  drawEntranceWindow(stage, W, portrait)
+
   // Build the natural-light layers: cone + hotspot + dust around the entrance,
   // plus a MULTIPLY ambient overlay that tints the whole canvas to the
   // time-of-day mood. Ticker callback drives flicker + dust + lerp.
@@ -402,6 +407,42 @@ function drawWallBorders(stage: Container, W: number, H: number, floor: FloorPal
   wall.rect(W - 4, 0, 4, H).fill({ color: accent, alpha: 0.35 })
   wall.rect(0, H - 4, W, 4).fill({ color: accent, alpha: 0.35 })
   stage.addChild(wall)
+}
+
+// ─── Entrance window frame ──────────────────────────────
+//
+// A rounded "skylight" at the top edge of the canvas — gives the EntranceLight
+// cone a visible source. Without it the natural-light layers look like an
+// unexplained glow; with it the room reads as having a window above the door.
+//
+// Drawn BEFORE the ambient overlay so it picks up the time-of-day mood tint
+// (frame darkens at night, warms at evening). Pure decoration — no events.
+
+function drawEntranceWindow(stage: Container, W: number, portrait: boolean) {
+  // Window width tracks the EntranceLight cone width so the light visibly
+  // pours out of the frame. Slightly narrower on phones so it doesn't span
+  // most of a narrow canvas.
+  const windowW = portrait ? Math.min(260, W * 0.50) : Math.min(360, W * 0.30)
+  const windowX = (W - windowW) / 2
+  const windowY = 4
+  const windowH = 14
+  const radius = 7
+
+  // Outer frame (darker, sits ~2px outside the inner pane)
+  const frame = new Graphics()
+  frame
+    .roundRect(windowX - 2, windowY - 2, windowW + 4, windowH + 4, radius + 2)
+    .fill({ color: 0x2A1810, alpha: 0.95 })
+  stage.addChild(frame)
+
+  // Inner pane — slightly lighter than the frame so the rounded-rect inset
+  // reads as a real frame depth. Cone/hotspot from EntranceLight will paint
+  // additively on top, lighting up the pane.
+  const inner = new Graphics()
+  inner
+    .roundRect(windowX, windowY, windowW, windowH, radius)
+    .fill({ color: 0x4A3220, alpha: 0.85 })
+  stage.addChild(inner)
 }
 
 // ─── Entrance click hit area ────────────────────────────
