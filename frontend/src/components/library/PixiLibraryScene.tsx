@@ -275,20 +275,30 @@ function drawScene(
   // Window frame at the top — gives the entrance light a tangible source so
   // it reads as "sunlight through a window" instead of an unexplained glow.
   // Sits BELOW the ambient overlay so it tints with the time-of-day mood.
-  drawEntranceWindow(stage, W, portrait)
+  //
+  // Width/position is shared with the EntranceLight call below so the cone
+  // hotspot lines up 1:1 with the window pane (EntranceLight's hotspot is
+  // windowWidth * 1.6 — solve backwards to get matching geometry).
+  const windowFrameW = portrait
+    ? Math.min(W * 0.62, 320)
+    : Math.min(W * 0.55, 760)
+  const windowFrameY = 4
+  const windowFrameH = 16
+  drawEntranceWindow(stage, W, windowFrameW, windowFrameY, windowFrameH)
 
   // Build the natural-light layers: cone + hotspot + dust around the entrance,
   // plus a MULTIPLY ambient overlay that tints the whole canvas to the
   // time-of-day mood. Ticker callback drives flicker + dust + lerp.
   //
-  // Parameters match the upstream design reference verbatim:
-  //   windowWidth: 244, maxReach: 560, dustCount: 32, y: 12
-  // Phones cap windowWidth to canvas * 0.45 so the cone doesn't dominate
-  // when the canvas is narrower than 540px.
+  // Geometry is derived from the window frame above so cone/hotspot align
+  // perfectly with the pane:
+  //   - y starts at the window's bottom edge (light pours out of the frame)
+  //   - windowWidth = frameW / 1.6 so hotspot.width (= windowWidth * 1.6)
+  //     matches the pane width exactly
   const light = new EntranceLight(app, {
     x: W / 2,
-    y: 12,
-    windowWidth: portrait ? Math.min(244, W * 0.45) : 244,
+    y: windowFrameY + windowFrameH,
+    windowWidth: windowFrameW / 1.6,
     maxReach: Math.min(H * 0.88, 560),
     dustCount: portrait ? 24 : 32,
   })
@@ -418,14 +428,14 @@ function drawWallBorders(stage: Container, W: number, H: number, floor: FloorPal
 // Drawn BEFORE the ambient overlay so it picks up the time-of-day mood tint
 // (frame darkens at night, warms at evening). Pure decoration — no events.
 
-function drawEntranceWindow(stage: Container, W: number, portrait: boolean) {
-  // Window width tracks the EntranceLight cone width so the light visibly
-  // pours out of the frame. Slightly narrower on phones so it doesn't span
-  // most of a narrow canvas.
-  const windowW = portrait ? Math.min(260, W * 0.50) : Math.min(360, W * 0.30)
+function drawEntranceWindow(
+  stage: Container,
+  W: number,
+  windowW: number,
+  windowY: number,
+  windowH: number,
+) {
   const windowX = (W - windowW) / 2
-  const windowY = 4
-  const windowH = 14
   const radius = 7
 
   // Outer frame (darker, sits ~2px outside the inner pane)
