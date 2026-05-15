@@ -1,5 +1,104 @@
 # HANDOFF
 
+## [2026-05-15] 열 번째 세션 — Pixi 평면도 비주얼 전면 리뉴얼 (외부 디자인 협업)
+
+발표 PPT 제작 시작점에서 사용자가 "광원이 시안 대비 어색하다" 피드백 → 외부 디자인 도구(이하 "디자인 협업")와 contract 양식 협업 시작. 입구 광원 / 창문 프레임 / 마루 / 책장 4개 시각 컴포넌트 모두 cinematic하게 리뉴얼. 라이브 검증 완료.
+
+### 오늘 한 일
+
+#### A. 협업 워크플로우 정립
+
+매 컴포넌트마다 같은 패턴 반복:
+1. 우리가 현재 코드 + Public API + 자유도/제약을 정리한 contract 양식 작성 → 사용자에게 전달
+2. 사용자가 디자인 도구에 contract 던짐 → 디자인 도구가 같은 양식으로 결과물 작성
+3. 우리가 받은 코드 그대로 통째 교체 (signature/타입 동일이라 호출처 변경 0)
+4. 라이브 검증 → 추가 조정 round
+
+장점: 양쪽이 책임 명확. 디자인 도구는 시각, 우리는 시스템 통합 + Pixi v7→v8 호환 검증.
+
+#### B. 입구 광원 — EntranceLight 클래스 (commits `7967507`, `ea47829`, `a03d467`, `b7d7842`, `4ea4189`)
+
+기존 `drawEntrance` + `drawEntranceSpill` 줄무늬 stacking → 4-레이어 cinematic 자연광으로 통째 교체.
+- **레이어**: ambient(MULTIPLY 전체 톤) / cone(ADD trapezoidal) / hotspot(ADD radial) / dust 28-32개
+- **3 프리셋**: day(따뜻한 흰빛) / evening(노을 주황) / night(푸른 달빛). 시간대 전환 시 ~1초 lerp 보간 (color/alpha/scale/darkness 모두)
+- **텍스처**: Canvas trapezoidal cone + radial hotspot 베이크 → 정적 static field 캐시 (`__coneTex`, `__hotspotTex`) 모든 도서관 공유
+- **ticker 등록**: flicker + breathe(sin 호흡) + dust drift 라이브 애니메이션
+- **god ray 제거**: 1차에 부채꼴 5줄 god ray 있었는데 시안 대비 너무 강조 + 직사광 인상 → 통째 제거
+- **z-order 핵심**: ambient(MULTIPLY)는 cone(ADD) **아래**에 있어야 함. 위에 두면 cone의 추가 빛이 ambient에 의해 다시 곱셈 다운돼 brown wash에 잡아먹힘
+- **lifecycle**: `attachTicker()` / `destroy()` 명시. drawScene 재호출 + 컴포넌트 unmount 시 옛 인스턴스 destroy로 ticker 누수 방지 (`entranceLightRef` useRef)
+
+#### C. 입구 창문 프레임 (commits `41a5676`, `c3a2392`, `c1f131d`, `0ac5a0c`)
+
+빛의 시각적 근원 — "여기가 광원이다"가 명확. drawEntranceWindow 신설.
+- **둥근 외곽 frame** `#2A1810` + **밝은 inner pane** `#4A3220` 2겹. cone hotspot이 ADD로 그 위 얹어서 창문 안이 환하게 빛남
+- **얇고 사각형 가까움**: height 9, radius 3 (시안의 검은 막대 인상)
+- **창문 폭 vs 빛 폭 매칭 풀음**: 처음엔 1:1 강제 매칭이었는데, 사용자가 보낸 라이브 사진 보고 "창문 작게 + 빛 양옆으로 spill"이 더 자연스러움 결정. 창문 ~24% / 빛 ~46%
+- **z-order**: 마루/책장 다음, ambient 직전 → 시간대 톤이 창문에도 자연스럽게 입혀짐
+
+#### D. 마루 brick pattern (commits `e7e805f`, `336a3e7`)
+
+기존 단색 fill + 1px seam → 너른 brick pattern + 톤 변주 + 단일 Graphics 배칭.
+- **plankH 28 → 36** (너른 마루)
+- **boardW 90~140 → 160~280**
+- **톤 변주**: 5톤 균등 ±12% → 3톤 base 비중 3:1:1 ±6% (얼룩 인상 제거)
+- **상단 1px sheen** alpha 0.18 — 빛 받는 면 디테일
+- **단일 Graphics 배칭**: 캔버스당 수십~수백 child → 1개로 정리
+- **brick stagger**: 홀수 행은 `-Math.floor(maxBoardW/2)` 좌측 시프트
+- **새 색**: cream-pine `#E5D2B0→#E2C99A` / golden-oak `#B5824D→#B07A33` / dark-wenge `#3D2817→#3A2918` (백엔드 `FloorThemeService.upsert`가 existing row 색까지 갱신해주므로 startup 자동 마이그레이션)
+
+#### E. 책장 다층 디테일 + wood grain 베이크 (commits `d2f9985`, `926e6b0`)
+
+기존 단순 wood fill → 다층 디테일 + 안쪽 백패널 wood grain 베이크 텍스처.
+- **edge 입체감**: wood 상단 highlight + 우/하단 shadow + 안쪽 inset 그림자
+- **선반 4단**: 각 단마다 상단 광택 + 아래 그림자 (이전 divider 1개만)
+- **책 4-layer**: 사용자 `coverColor` 그대로 + 좌측 하이라이트(lighten 0.25) + 우측 책등 그림자(darken 0.35) + 상단 캡 + 발치 접지 그림자. **`coverColor`는 절대 덮어쓰지 않음** — 사용자가 picker로 고른 색 그대로
+- **wood grain 베이크 텍스처** (v2): 안쪽 백패널을 단색 fill 대신 Canvas로 베이크된 wood grain Texture Sprite로 교체
+  - 미세 가로 결 (어두운/밝은 줄 랜덤) + 굵은 결 4~5줄 sine 변조 + 안쪽 비네팅 + 상단 광택
+  - `theme + size` 키로 캐시 — 같은 테마/크기 책장이면 한 번만 베이크해서 공유
+  - 빈 선반도 결무늬가 살아 있어 가구다운 묵직함
+- **fontWeight 700** — 라벨/capacity 가독성 ↑
+
+### 현재 상태
+
+**라이브 (메인 IntelliJ 머지 + 라이브 검증 완료, push 대기)**:
+- 평면도 비주얼 인상 v1.5 (cinematic 자연광 + 너른 마루 + 다층 책장)
+- 시간대 전환 lerp 보간 라이브 작동
+- ticker 애니메이션 (flicker + dust drift) 30fps급 가벼움
+- 세 floor 테마(cream-pine/golden-oak/dark-wenge) + 세 shelf 테마(warm-walnut/warm-pine/industrial-frame) 모두 의도대로
+
+### 다음에 이어서 할 일
+
+9세션 표 + 오늘 발견 항목:
+
+| # | 작업 | 추정 | 가치 |
+|---|---|---|---|
+| **C** | 검색/필터 — tags/aiSummary 활용 ★ 추천 1순위 | 0.5일 | 가시 임팩트, DB 데이터 활용 |
+| **B** | AI 책 추천/관련도서 | 1일 | 포폴 임팩트 ★★ |
+| **F** | 유명 브랜드 hardcoded color lookup | 0.5일 | Naver variance 픽스 |
+| **G** | EditBookModal AI 재분석 버튼 | 0.5일 | variance 즉시 복구 |
+| **D** | favicon 색 추출 폴백 | 0.5일 | theme-color/AI 둘 다 없는 사이트 |
+| **H** | per-import 진행률 UI | 1일 | UX 인지도 |
+| **I** | 발표 PPT 자료 작성 (시작점) | 0.5일 | 포폴 발표 준비 — 사용자 의도 |
+
+**제 추천**: 다음 세션에 발표 PPT 자료 마무리(I) 또는 검색/필터(C). 발표 자료 작성 중에 사이트 시각 자체가 v1.5로 강화돼서 PPT 스크린샷 임팩트 ↑.
+
+### 미해결 이슈 / 막힌 지점
+
+없음. 모든 작업 라이브 검증 완료.
+
+### 컨텍스트 / 주의사항
+
+- **외부 디자인 협업 양식** — Public API contract를 우리가 먼저 명시(인터페이스 + 시그니처 + 자유도 + 제약 + v8 마이그레이션 메모) → 디자인 도구가 같은 양식으로 작성 → 우리가 통째 교체. `entranceLight`/`floor`/`bookshelf` 세 컴포넌트 모두 이 패턴으로 진행. 차후 다른 시각 컴포넌트도 동일 패턴 권장
+- **preset 값은 디자인 작성자의 의도** — 임의 수정 금지. 1차 통합 후 라이브 보고 "시안과 다르다"고 생각해 NIGHT coneColor를 `#A8C4ED`(푸른 달빛) → `#C8D8F2`(중성 흰)로 마음대로 바꿨다가 사용자 즉시 지적 — "이거 그냥 바로 쓴 거 맞아?" 추가 조정 필요하면 사용자 협의 후
+- **z-order LIFO** — Pixi `addChild`는 LIFO라 나중에 추가된 게 위. ambient(MULTIPLY)와 cone(ADD) 순서가 핵심. ambient 먼저 → cone 나중. 향후 새 시각 레이어 추가 시 blend 모드 + z-order 같이 검토
+- **단일 Graphics 배칭 패턴** — 마루/책장 모두 동일 패턴. 한 `Graphics()` 인스턴스에 모든 `rect()/roundRect().fill()` 체이닝 후 한 번만 `addChild`. child 수 수십~수백 → 1개. 다른 시각 컴포넌트도 같은 패턴 적용 권장
+- **베이크 텍스처 + 캐시 패턴** — Canvas 2D로 그린 wood grain/cone/hotspot 등 정적 시각을 `Texture.from(canvas)`로 한 번 베이크 후 static field 캐시. 모든 도서관/책장이 공유 → GPU 메모리 부담 최소
+- **`Book.coverColor` 절대 덮어쓰기 X** — 사용자가 picker로 고른 색은 사용자 정체성. 위에 lighten/darken alpha 디테일만 얹어 입체감만 더함. 절대 색 자체 변경 금지
+- **마루 색 변경 → 백엔드 자동 마이그레이션** — `FloorThemeService.upsert`가 existing row 색까지 update해주는 패턴. seed 코드만 바꾸면 startup 자동 갱신. `BookshelfThemeService`도 동일 패턴
+- **`floorPaletteFor`는 프론트엔드 정의가 우선** — 백엔드 색은 LibrarySettings swatch 미리보기용. 둘이 mismatch면 swatch와 캔버스가 다르게 보이므로 양쪽 동기화 필수
+
+---
+
 ## [2026-05-14 오후] 아홉 번째 세션 — 동적 OG 이미지 (per-library 책 spine)
 
 여덟 번째 세션 끝나고 같은 날 이어서. vision 메모리 "보류된 미작업" 1순위였던 동적 OG 이미지 처리. v1 사양(캐시 + URL bust + fallback) 그대로 + 라이브 첫 검증 후 디자인 보강 한 번 거쳐 안착.
