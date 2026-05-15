@@ -1,20 +1,3 @@
-// ────────────────────────────────────────────────────────────────────────
-//  EntranceLight  ·  Pixi.js v8
-//  도서관 입구로 들어오는 자연광 효과 (낮 / 저녁 / 밤)
-//
-//  4 레이어:
-//    1. ambient   — MULTIPLY로 캔버스 전체 톤·어둡기 (시간대 분위기 핵심)
-//    2. cone      — 메인 빛 원뿔 (canvas로 베이크한 trapezoidal 그라디언트)
-//    3. hotspot   — 입구 바로 아래 radial 핫스팟
-//    4. dust      — 빛 속 떠다니는 먼지 입자
-//
-//  ticker 등록 시: flicker · breathe · dust drift 라이브 애니메이션
-//  시간대 전환 시 lerp 보간 (color, alpha, scale 모두)
-//
-//  Note: god ray 부채꼴(5개) 레이어는 두 번째 디자인 시안 대비 너무
-//  강조돼 부드러운 둥근 광원 인상이 깨져서 제거함.
-// ────────────────────────────────────────────────────────────────────────
-
 import {
   Application,
   Container,
@@ -24,68 +7,70 @@ import {
   type Ticker,
 } from 'pixi.js'
 
+// ── 외부 노출 타입 ───────────────────────────────────
 export type EntrancePresetName = 'day' | 'evening' | 'night'
 
 export interface EntrancePreset {
   label: string
-  coneColor: number       // 메인 원뿔 tint
-  hotspotColor: number    // 입구 바로 아래 핫스팟 + 먼지 색
+  coneColor: number
+  hotspotColor: number
   coneAlpha: number
   hotspotAlpha: number
-  coneScaleY: number      // 빛이 닿는 거리 (1.0 기준)
-  coneSpread: number      // 좌우 퍼짐
-  ambientColor: number    // 방 전체에 입혀지는 색조
-  ambientAlpha: number    // 색조 입히는 강도
-  darkness: number        // 0=원본 / 1=암흑
+  coneScaleY: number
+  coneSpread: number
+  ambientColor: number
+  ambientAlpha: number
+  darkness: number
   dustAlpha: number
-  flicker: number         // 매 프레임 random 노이즈 폭
+  flicker: number
+  // ※ 새 필드 추가 시 lerpPreset()의 보간 블록도 같이 갱신할 것
 }
 
 export const ENTRANCE_PRESETS: Record<EntrancePresetName, EntrancePreset> = {
-  // 낮: 창문으로 밀려드는 따뜻한 직사광 (~4800K)
+  // ── 낮 : 창문으로 밀려드는 따뜻한 직사광 ──────────────────────
   day: {
     label: '낮',
-    coneColor:    0xFFE9B0,
-    hotspotColor: 0xFFF6D8,
-    coneAlpha:    0.78,
+    coneColor: 0xffe9b0,
+    hotspotColor: 0xfff6d8,
+    coneAlpha: 0.78,
     hotspotAlpha: 0.55,
-    coneScaleY:   1.0,
-    coneSpread:   1.0,
-    ambientColor: 0xFFF1D0,
+    coneScaleY: 1.0,
+    coneSpread: 1.0,
+    ambientColor: 0xfff1d0,
     ambientAlpha: 0.06,
-    darkness:     0.0,
-    dustAlpha:    0.55,
-    flicker:      0.015,
+    darkness: 0.0,
+    dustAlpha: 0.55,
+    flicker: 0.015,
   },
-  // 저녁: 노을, 길고 낮게 깔리는 주황빛 (~2200K)
+  // ── 저녁 : 노을, 길고 낮게 깔리는 주황빛 ──────────────────────
   evening: {
     label: '저녁',
-    coneColor:    0xFF8A45,
-    hotspotColor: 0xFFB070,
-    coneAlpha:    0.62,
+    coneColor: 0xff8a45,
+    hotspotColor: 0xffb070,
+    coneAlpha: 0.62,
     hotspotAlpha: 0.42,
-    coneScaleY:   1.25,
-    coneSpread:   1.15,
-    ambientColor: 0xC04020,
+    coneScaleY: 1.25,
+    coneSpread: 1.15,
+    ambientColor: 0xc04020,
     ambientAlpha: 0.22,
-    darkness:     0.18,
-    dustAlpha:    0.7,
-    flicker:      0.025,
+    darkness: 0.18,
+    dustAlpha: 0.7,
+    flicker: 0.025,
   },
-  // 밤: 차가운 달빛 (가구·UI 식별 가능한 어둠)
+  // ── 밤 : 달빛, 차갑게 (바닥까지 식별 가능한 어둠) ──────────────
   night: {
     label: '밤',
-    coneColor:    0xA8C4ED,
-    hotspotColor: 0xD4E2F6,
-    coneAlpha:    0.55,
+    coneColor: 0xa8c4ed,
+    hotspotColor: 0xd4e2f6,
+    coneAlpha: 0.55,
     hotspotAlpha: 0.42,
-    coneScaleY:   0.92,
-    coneSpread:   1.00,
-    ambientColor: 0x2A3A5E,
-    ambientAlpha: 0.40,
-    darkness:     0.22,
-    dustAlpha:    0.45,
-    flicker:      0.030,
+    coneScaleY: 0.92,
+    coneSpread: 1.0,
+    ambientColor: 0x2a3a5e,
+    ambientAlpha: 0.4,
+    darkness: 0.22,
+    dustAlpha: 0.45,
+    flicker: 0.03,
   },
 }
 
@@ -97,6 +82,7 @@ export interface EntranceLightOpts {
   dustCount?: number
 }
 
+// ── 내부 타입 ────────────────────────────────────────
 interface DustParticle {
   g: Graphics
   ox: number
@@ -107,28 +93,39 @@ interface DustParticle {
   size: number
 }
 
+// ────────────────────────────────────────────────────────────────────
+//  EntranceLight  ·  창문에서 들어오는 자연광 (낮 / 저녁 / 밤)
+//
+//  레이어 구성:
+//    container        — cone + hotspot + dust (입구 부근)
+//    ambientLayer     — 캔버스 전체 multiply ambient (분리)
+// ────────────────────────────────────────────────────────────────────
 export class EntranceLight {
   readonly container: Container
 
-  private app: Application
-  private cx: number
-  private cy: number
-  private windowWidth: number
-  private maxReach: number
+  private readonly app: Application
+  private readonly cx: number
+  private readonly cy: number
+  private readonly windowWidth: number
+  private readonly maxReach: number
 
-  private ambient: Graphics
-  private cone: Sprite
-  private hotspot: Sprite
-  private dust: Container
-  private dustParticles: DustParticle[] = []
+  private readonly cone: Sprite
+  private readonly hotspot: Sprite
+  private readonly dust: Container
+  private readonly dustParticles: DustParticle[] = []
+  private readonly ambient: Graphics
+
+  private cfg: EntrancePreset
+  private lerpStart: EntrancePreset | null = null
+  private lerpTarget: EntrancePreset | null = null
+  private lerpT = 1
 
   private t = 0
-  private cfg: EntrancePreset
-  private targetCfg: EntrancePreset | null = null
-  private lerpStart: EntrancePreset | null = null
-  private lerpT: number | null = null
-
   private tickerFn: ((ticker: Ticker) => void) | null = null
+
+  // ── 정적 텍스처 캐시 (모든 인스턴스 공유) ─────────────
+  private static __coneTex: Texture | null = null
+  private static __hotspotTex: Texture | null = null
 
   constructor(app: Application, opts: EntranceLightOpts = {}) {
     this.app = app
@@ -138,14 +135,9 @@ export class EntranceLight {
     this.maxReach = opts.maxReach ?? 520
 
     this.container = new Container()
-    this.container.sortableChildren = false
 
-    // 1) ambient — MULTIPLY 합성으로 캔버스 전체 톤·어둡기
-    this.ambient = new Graphics()
-    this.ambient.blendMode = 'multiply'
-
-    // 2) cone — 메인 빛 원뿔 (ADD)
-    this.cone = new Sprite(EntranceLight.coneTexture())
+    // 1) 빛 원뿔 (additive)
+    this.cone = new Sprite(EntranceLight.getConeTexture())
     this.cone.anchor.set(0.5, 0)
     this.cone.blendMode = 'add'
     this.cone.x = this.cx
@@ -153,8 +145,8 @@ export class EntranceLight {
     this.cone.width = this.windowWidth * 3.4
     this.cone.height = this.maxReach
 
-    // 3) hotspot — 입구 바로 아래 radial 핫스팟
-    this.hotspot = new Sprite(EntranceLight.hotspotTexture())
+    // 2) 창문 바로 아래 핫스팟 (additive)
+    this.hotspot = new Sprite(EntranceLight.getHotspotTexture())
     this.hotspot.anchor.set(0.5, 0.3)
     this.hotspot.blendMode = 'add'
     this.hotspot.x = this.cx
@@ -162,12 +154,11 @@ export class EntranceLight {
     this.hotspot.width = this.windowWidth * 1.6
     this.hotspot.height = 180
 
-    // 4) dust — 빛 속 떠다니는 먼지 입자
+    // 3) 먼지 (god ray 속이 아닌 cone 안에서 부유)
     this.dust = new Container()
     const dustCount = opts.dustCount ?? 28
     for (let i = 0; i < dustCount; i++) {
-      const g = new Graphics()
-      g.circle(0, 0, 1).fill({ color: 0xFFFFFF, alpha: 1 })
+      const g = new Graphics().circle(0, 0, 1).fill(0xffffff)
       g.blendMode = 'add'
       this.dust.addChild(g)
       this.dustParticles.push({
@@ -182,41 +173,44 @@ export class EntranceLight {
     }
 
     this.container.addChild(this.cone, this.hotspot, this.dust)
-    // ambient는 별도 — drawScene에서 stage의 맨 끝에 붙여 모든 요소 위로 깔리게.
-    // (cone/hotspot/dust는 입구 부근만이라 이 컨테이너 안에서 순서대로)
 
-    this.cfg = ENTRANCE_PRESETS.day
-    this.setPreset('day', true)
+    // 4) ambient (multiply) — container와 분리되어 노출
+    this.ambient = new Graphics()
+    this.ambient.blendMode = 'multiply'
+
+    this.cfg = { ...ENTRANCE_PRESETS.day }
+    this.applyStatic()
   }
 
-  /** ambient를 별도로 노출 — caller가 stage 최상단에 직접 붙임. */
   get ambientLayer(): Graphics {
     return this.ambient
   }
 
-  /** 시간대 전환. instant=false면 ~1초 lerp. */
-  setPreset(name: EntrancePresetName, instant = false) {
+  // ── 시간대 전환 ────────────────────────────────────
+  setPreset(name: EntrancePresetName, instant = false): void {
     const next = ENTRANCE_PRESETS[name]
     if (!next) return
-    this.targetCfg = next
     if (instant) {
       this.cfg = { ...next }
+      this.lerpStart = null
+      this.lerpTarget = null
+      this.lerpT = 1
       this.applyStatic()
     } else {
       this.lerpStart = { ...this.cfg }
+      this.lerpTarget = next
       this.lerpT = 0
     }
   }
 
-  /** ticker 등록 — flicker / dust / lerp가 살아남. */
-  attachTicker() {
+  // ── 매 프레임 ──────────────────────────────────────
+  attachTicker(): void {
     if (this.tickerFn) return
     this.tickerFn = (ticker: Ticker) => this.update(ticker.deltaTime)
     this.app.ticker.add(this.tickerFn)
   }
 
-  /** 컴포넌트 unmount 또는 redraw 시 호출. ticker 해제 + 컨테이너 정리. */
-  destroy() {
+  destroy(): void {
     if (this.tickerFn) {
       this.app.ticker.remove(this.tickerFn)
       this.tickerFn = null
@@ -225,84 +219,40 @@ export class EntranceLight {
     this.ambient.destroy()
   }
 
-  // ── 정적 적용 ─────────────────────────────────────────
-  private applyStatic() {
-    const c = this.cfg
-    this.cone.tint = c.coneColor
-    const coneTex = this.cone.texture
-    // scale 직접 설정 (width/height = scale * texture.size)
-    this.cone.scale.y = (this.maxReach / coneTex.height) * c.coneScaleY
-    this.cone.scale.x = ((this.windowWidth * 3.4) / coneTex.width) * c.coneSpread
-    this.hotspot.tint = c.hotspotColor
-    this.drawAmbient()
-  }
-
-  private drawAmbient() {
-    const { ambientColor, ambientAlpha, darkness } = this.cfg
-    const w = this.app.screen.width
-    const h = this.app.screen.height
-    // MULTIPLY: 결과색 = 원본색 × tint.
-    //   1) 색조: white→ambientColor 를 ambientAlpha 만큼 섞고
-    //   2) 그 결과를 (1-darkness) 만큼 곱해서 전체 톤다운
-    const r = ((ambientColor >> 16) & 0xff) / 255
-    const g = ((ambientColor >> 8) & 0xff) / 255
-    const b = (ambientColor & 0xff) / 255
-    const k = 1 - darkness
-    const fr = ((1 - ambientAlpha) + ambientAlpha * r) * k
-    const fg = ((1 - ambientAlpha) + ambientAlpha * g) * k
-    const fb = ((1 - ambientAlpha) + ambientAlpha * b) * k
-    const finalColor =
-      (Math.round(fr * 255) << 16) |
-      (Math.round(fg * 255) << 8) |
-      Math.round(fb * 255)
-    this.ambient.clear()
-    this.ambient.rect(0, 0, w, h).fill({ color: finalColor, alpha: 1 })
-  }
-
-  // ── 매 프레임 ─────────────────────────────────────────
-  private update(dt: number) {
+  // ── 내부 ───────────────────────────────────────────
+  private update(dt: number): void {
     this.t += dt
 
-    // 보간
-    if (this.lerpT !== null && this.lerpT < 1 && this.lerpStart && this.targetCfg) {
+    // 1) lerp 보간
+    if (this.lerpT < 1 && this.lerpStart && this.lerpTarget) {
       this.lerpT = Math.min(1, this.lerpT + dt / 60)
       const u = easeInOut(this.lerpT)
-      const a = this.lerpStart
-      const b = this.targetCfg
-      this.cfg = {
-        ...b,
-        coneAlpha:    lerp(a.coneAlpha,    b.coneAlpha,    u),
-        hotspotAlpha: lerp(a.hotspotAlpha, b.hotspotAlpha, u),
-        coneScaleY:   lerp(a.coneScaleY,   b.coneScaleY,   u),
-        coneSpread:   lerp(a.coneSpread,   b.coneSpread,   u),
-        ambientAlpha: lerp(a.ambientAlpha, b.ambientAlpha, u),
-        darkness:     lerp(a.darkness,     b.darkness,     u),
-        dustAlpha:    lerp(a.dustAlpha,    b.dustAlpha,    u),
-        flicker:      lerp(a.flicker,      b.flicker,      u),
-        coneColor:    lerpColor(a.coneColor,    b.coneColor,    u),
-        hotspotColor: lerpColor(a.hotspotColor, b.hotspotColor, u),
-        ambientColor: lerpColor(a.ambientColor, b.ambientColor, u),
-      }
+      this.cfg = lerpPreset(this.lerpStart, this.lerpTarget, u)
       this.applyStatic()
+      if (this.lerpT >= 1) {
+        this.cfg = { ...this.lerpTarget }
+        this.lerpStart = null
+        this.lerpTarget = null
+      }
     }
 
+    // 2) flicker + breathe
     const c = this.cfg
-
-    // flicker — 창밖 구름·바람 느낌
     const breathe = 1 + Math.sin(this.t * 0.03) * 0.04
     const noise = (Math.random() - 0.5) * c.flicker
     const f = breathe + noise
-
     this.cone.alpha = c.coneAlpha * f
     this.hotspot.alpha = c.hotspotAlpha * f
 
-    // 먼지 부유
+    // 3) 먼지 부유
     for (const p of this.dustParticles) {
       p.depth += p.fallSpeed * dt * 0.004
       if (p.depth > 1) p.depth -= 1
       p.drift += p.driftSpeed * dt * 0.01
 
-      const halfW = (this.windowWidth * 0.35) + p.depth * (this.windowWidth * 1.2) * c.coneSpread
+      const halfW =
+        this.windowWidth * 0.35 +
+        p.depth * (this.windowWidth * 1.2) * c.coneSpread
       const localX = p.ox * (0.6 + p.depth * 1.4) + Math.sin(p.drift) * 6
       const py = this.cy + p.depth * this.maxReach * c.coneScaleY
       const horizFade = Math.max(0, 1 - Math.abs(localX) / halfW)
@@ -315,20 +265,45 @@ export class EntranceLight {
     }
   }
 
-  // ── 텍스처 베이크 (정적 캐시, 한 번만 생성) ───────────
-  private static __cone: Texture | null = null
-  private static __hotspot: Texture | null = null
+  private applyStatic(): void {
+    const c = this.cfg
+    this.cone.tint = c.coneColor
+    this.cone.scale.y =
+      (this.maxReach / this.cone.texture.height) * c.coneScaleY
+    this.cone.scale.x =
+      ((this.windowWidth * 3.4) / this.cone.texture.width) * c.coneSpread
+    this.hotspot.tint = c.hotspotColor
+    this.drawAmbient()
+  }
 
-  private static coneTexture(): Texture {
-    if (EntranceLight.__cone) return EntranceLight.__cone
+  private drawAmbient(): void {
+    const { ambientColor, ambientAlpha, darkness } = this.cfg
+    const w = this.app.screen.width
+    const h = this.app.screen.height
+    const r = ((ambientColor >> 16) & 0xff) / 255
+    const g = ((ambientColor >> 8) & 0xff) / 255
+    const b = (ambientColor & 0xff) / 255
+    const k = 1 - darkness
+    const fr = (1 - ambientAlpha + ambientAlpha * r) * k
+    const fg = (1 - ambientAlpha + ambientAlpha * g) * k
+    const fb = (1 - ambientAlpha + ambientAlpha * b) * k
+    const finalColor =
+      (Math.round(fr * 255) << 16) |
+      (Math.round(fg * 255) << 8) |
+      Math.round(fb * 255)
+    this.ambient.clear()
+    this.ambient.rect(0, 0, w, h).fill(finalColor)
+  }
+
+  // ── 텍스처 베이크 (정적 캐시) ──────────────────────
+  private static getConeTexture(): Texture {
+    if (EntranceLight.__coneTex) return EntranceLight.__coneTex
     const W = 256
     const H = 384
     const c = document.createElement('canvas')
     c.width = W
     c.height = H
     const ctx = c.getContext('2d')!
-    ctx.clearRect(0, 0, W, H)
-    // 행별 horizontal gradient → trapezoidal 빛기둥
     for (let y = 0; y < H; y++) {
       const t = y / H
       const vert = Math.pow(1 - t, 1.4)
@@ -343,20 +318,18 @@ export class EntranceLight {
       ctx.fillStyle = grad
       ctx.fillRect(cx - halfW, y, halfW * 2, 1)
     }
-    // 위→아래 fade (블러 흉내)
     ctx.globalCompositeOperation = 'destination-in'
     const fade = ctx.createLinearGradient(0, 0, 0, H)
     fade.addColorStop(0, 'rgba(0,0,0,1)')
     fade.addColorStop(1, 'rgba(0,0,0,0)')
     ctx.fillStyle = fade
     ctx.fillRect(0, 0, W, H)
-
-    EntranceLight.__cone = Texture.from(c)
-    return EntranceLight.__cone
+    EntranceLight.__coneTex = Texture.from(c)
+    return EntranceLight.__coneTex
   }
 
-  private static hotspotTexture(): Texture {
-    if (EntranceLight.__hotspot) return EntranceLight.__hotspot
+  private static getHotspotTexture(): Texture {
+    if (EntranceLight.__hotspotTex) return EntranceLight.__hotspotTex
     const S = 256
     const c = document.createElement('canvas')
     c.width = c.height = S
@@ -368,12 +341,16 @@ export class EntranceLight {
     g.addColorStop(1, 'rgba(255,255,255,0)')
     ctx.fillStyle = g
     ctx.fillRect(0, 0, S, S)
-    EntranceLight.__hotspot = Texture.from(c)
-    return EntranceLight.__hotspot
+    EntranceLight.__hotspotTex = Texture.from(c)
+    return EntranceLight.__hotspotTex
   }
 }
 
-// ── 유틸 ─────────────────────────────────────────────────
+// ── 헬퍼 ─────────────────────────────────────────────
+function easeInOut(t: number): number {
+  return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2
+}
+
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t
 }
@@ -392,6 +369,20 @@ function lerpColor(a: number, b: number, t: number): number {
   )
 }
 
-function easeInOut(t: number): number {
-  return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2
+// ※ EntrancePreset에 새 필드 추가하면 여기도 같이 갱신할 것
+function lerpPreset(a: EntrancePreset, b: EntrancePreset, t: number): EntrancePreset {
+  return {
+    label: b.label,
+    coneColor: lerpColor(a.coneColor, b.coneColor, t),
+    hotspotColor: lerpColor(a.hotspotColor, b.hotspotColor, t),
+    coneAlpha: lerp(a.coneAlpha, b.coneAlpha, t),
+    hotspotAlpha: lerp(a.hotspotAlpha, b.hotspotAlpha, t),
+    coneScaleY: lerp(a.coneScaleY, b.coneScaleY, t),
+    coneSpread: lerp(a.coneSpread, b.coneSpread, t),
+    ambientColor: lerpColor(a.ambientColor, b.ambientColor, t),
+    ambientAlpha: lerp(a.ambientAlpha, b.ambientAlpha, t),
+    darkness: lerp(a.darkness, b.darkness, t),
+    dustAlpha: lerp(a.dustAlpha, b.dustAlpha, t),
+    flicker: lerp(a.flicker, b.flicker, t),
+  }
 }
