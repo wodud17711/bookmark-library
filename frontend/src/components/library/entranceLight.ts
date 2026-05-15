@@ -47,12 +47,12 @@ export const ENTRANCE_PRESETS: Record<EntrancePresetName, EntrancePreset> = {
     label: '낮',
     coneColor:    0xFFE9B0,
     hotspotColor: 0xFFF6D8,
-    coneAlpha:    0.78,
-    hotspotAlpha: 0.55,
+    coneAlpha:    0.85,
+    hotspotAlpha: 0.60,
     coneScaleY:   1.0,
-    coneSpread:   1.0,
+    coneSpread:   1.30,        // 시안 인상에 맞춰 좌우 넓게 (1.0 → 1.30)
     ambientColor: 0xFFF1D0,
-    ambientAlpha: 0.06,
+    ambientAlpha: 0.04,
     darkness:     0.0,
     dustAlpha:    0.55,
     flicker:      0.015,
@@ -60,32 +60,34 @@ export const ENTRANCE_PRESETS: Record<EntrancePresetName, EntrancePreset> = {
   // 저녁: 노을, 길고 낮게 깔리는 주황빛 (~2200K)
   evening: {
     label: '저녁',
-    coneColor:    0xFF8A45,
-    hotspotColor: 0xFFB070,
-    coneAlpha:    0.62,
-    hotspotAlpha: 0.42,
-    coneScaleY:   1.25,
-    coneSpread:   1.15,
-    ambientColor: 0xC04020,
-    ambientAlpha: 0.22,
-    darkness:     0.18,
+    coneColor:    0xFF9A55,
+    hotspotColor: 0xFFC080,
+    coneAlpha:    0.72,
+    hotspotAlpha: 0.50,
+    coneScaleY:   1.20,
+    coneSpread:   1.30,        // 1.15 → 1.30
+    ambientColor: 0xB54820,
+    ambientAlpha: 0.15,        // 0.22 → 0.15
+    darkness:     0.10,        // 0.18 → 0.10
     dustAlpha:    0.7,
     flicker:      0.025,
   },
   // 밤: 차가운 달빛 (가구·UI 식별 가능한 어둠)
+  // darkness/ambientAlpha를 1차보다 낮춤 — 책장/마루가 시안 톤대로
+  // 갈색 그대로 보이게. 빛은 cone 강도/spread를 올려 시각 임팩트 강화.
   night: {
     label: '밤',
-    coneColor:    0xA8C4ED,
-    hotspotColor: 0xD4E2F6,
-    coneAlpha:    0.55,
-    hotspotAlpha: 0.42,
-    coneScaleY:   0.92,
-    coneSpread:   1.00,
-    ambientColor: 0x2A3A5E,
-    ambientAlpha: 0.40,
-    darkness:     0.22,
-    dustAlpha:    0.45,
-    flicker:      0.030,
+    coneColor:    0xC8D8F2,    // 약간 더 중성적 흰빛 (시안 인상에 맞춤)
+    hotspotColor: 0xE6EEFA,
+    coneAlpha:    0.78,        // 0.55 → 0.78
+    hotspotAlpha: 0.58,        // 0.42 → 0.58
+    coneScaleY:   1.00,        // 0.92 → 1.00
+    coneSpread:   1.30,        // 1.00 → 1.30 (좌우로 더 넓게)
+    ambientColor: 0x2E3D5C,
+    ambientAlpha: 0.22,        // 0.40 → 0.22
+    darkness:     0.10,        // 0.22 → 0.10 (캔버스 톤 유지)
+    dustAlpha:    0.55,        // 0.45 → 0.55
+    flicker:      0.025,
   },
 }
 
