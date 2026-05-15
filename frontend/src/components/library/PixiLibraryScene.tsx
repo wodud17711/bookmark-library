@@ -3,7 +3,9 @@ import {
   Application,
   Container,
   Graphics,
+  Sprite,
   Text,
+  Texture,
   type FederatedPointerEvent,
 } from 'pixi.js'
 import type { Bookshelf, EntranceMood, Library } from '../../api/library'
@@ -531,18 +533,89 @@ function layoutShelves(
   return boxes
 }
 
+// ── 베이크된 백패널 텍스처 캐시 (theme + size 기준) ─────────────────
+// 같은 theme + size 라면 한 번만 베이크해서 모든 책장이 공유.
+// 빈 선반도 wood grain 결무늬가 보이도록 Canvas 에 굵은 결 + 미세 결 +
+// 비네팅 + 상단 광택을 베이크한 후 PIXI Texture 로 캐싱.
+const __backTexCache = new Map<string, Texture>()
+
+function getBackPanelTexture(shelf: ShelfPalette, w: number, h: number): Texture {
+  const key = `${shelf.wood}_${shelf.shadow}_${w}x${h}`
+  const cached = __backTexCache.get(key)
+  if (cached) return cached
+
+  const c = document.createElement('canvas')
+  c.width = w
+  c.height = h
+  const ctx = c.getContext('2d')!
+
+  // 1) base 색
+  ctx.fillStyle = shelf.wood
+  ctx.fillRect(0, 0, w, h)
+
+  // 2) 가로 결무늬 — deterministic RNG (color 기반)
+  let seed = 0
+  const sig = shelf.wood + shelf.shadow
+  for (let i = 0; i < sig.length; i++) seed = (seed * 31 + sig.charCodeAt(i)) | 0
+  seed = Math.abs(seed) || 1
+  const rnd = () => {
+    seed = (seed * 9301 + 49297) % 233280
+    if (seed < 0) seed += 233280
+    return seed / 233280
+  }
+
+  // 미세한 가로 줄 (어두운 결)
+  for (let y = 0; y < h; y++) {
+    const r = rnd()
+    if (r < 0.35) {
+      ctx.fillStyle = shelf.shadow
+      ctx.globalAlpha = 0.06 + rnd() * 0.08
+      ctx.fillRect(0, y, w, 1)
+    } else if (r < 0.50) {
+      ctx.fillStyle = '#FFFFFF'
+      ctx.globalAlpha = 0.04 + rnd() * 0.05
+      ctx.fillRect(0, y, w, 1)
+    }
+  }
+  ctx.globalAlpha = 1
+
+  // 굵은 결 4~5줄 — 곡선처럼 살짝 변조
+  for (let i = 0; i < 5; i++) {
+    const yBase = Math.floor(rnd() * h)
+    ctx.fillStyle = shelf.shadow
+    ctx.globalAlpha = 0.10 + rnd() * 0.10
+    for (let x = 0; x < w; x++) {
+      const dy = Math.round(Math.sin(x * 0.07 + i) * 1.2)
+      ctx.fillRect(x, yBase + dy, 1, 1)
+    }
+  }
+  ctx.globalAlpha = 1
+
+  // 3) 안쪽 비네팅 (중앙은 밝게, 모서리는 어둡게)
+  const grad = ctx.createRadialGradient(
+    w / 2, h * 0.4, Math.min(w, h) * 0.1,
+    w / 2, h / 2,   Math.max(w, h) * 0.75,
+  )
+  grad.addColorStop(0, 'rgba(0,0,0,0)')
+  grad.addColorStop(1, 'rgba(0,0,0,0.25)')
+  ctx.fillStyle = grad
+  ctx.fillRect(0, 0, w, h)
+
+  // 4) 상단 가벼운 광택 (창문 빛 받는 면)
+  const topShine = ctx.createLinearGradient(0, 0, 0, h * 0.35)
+  topShine.addColorStop(0, 'rgba(255,255,255,0.10)')
+  topShine.addColorStop(1, 'rgba(255,255,255,0)')
+  ctx.fillStyle = topShine
+  ctx.fillRect(0, 0, w, h * 0.35)
+
+  const tex = Texture.from(c)
+  __backTexCache.set(key, tex)
+  return tex
+}
+
 /**
- * 책장 한 개 그리기 — 가구다운 깊이감을 위한 다층 디테일:
- *   - 발치 drop shadow
- *   - (옵션) 산업용 metal frame 액센트 (industrial 테마만)
- *   - wood 본체 + 상/우/하 edge 하이라이트/그림자
- *   - 안쪽 inset 그림자 (프레임 두께감)
- *   - wood grain 4줄 (shelf.id deterministic offset)
- *   - 선반 4단 = 30권 한도, 각 단마다 상단 광택 + 아래 그림자
- *   - 책마다 좌측 하이라이트 / 우측 책등 그림자 / 상단 캡 / 발치 그림자
- *     ※ book.coverColor 는 사용자가 고른 색 — 절대 덮어쓰지 않음, 위에 alpha 디테일만 얹음
- *
- * 성능: 모든 도형을 단일 Graphics 에 배칭 → child 수 최소.
+ * 책장 한 개 그리기 — 안쪽 백패널에 베이크된 wood grain 텍스처.
+ * 빈 선반도 결무늬가 보여서 시각적으로 살아남.
  */
 function drawBookshelf(
   stage: Container,
@@ -553,63 +626,64 @@ function drawBookshelf(
 ): void {
   const { shelf: data, x, y, w, h } = box
   const container = new Container()
-  // pivot 중앙 → hover scale 1.04 가 중앙 기준으로 일어남
   container.x = x + w / 2
   container.y = y + h / 2
   container.pivot.set(w / 2, h / 2)
   container.eventMode = 'static'
   container.cursor = 'pointer'
 
+  // 프레임/디테일/책 = 단일 Graphics 배칭
   const g = new Graphics()
 
-  // 1. 발치 그림자 (책장 → floor)
+  // 1. 발치 그림자
   g.roundRect(3, 5, w, h, 6).fill({ color: '#000000', alpha: 0.22 })
 
   // 2. (옵션) 산업용 metal frame
   if (shelf.frame) {
     g.roundRect(-3, -3, w + 6, h + 6, 4).fill(shelf.frame)
-    // 프레임 상단 광택 (1px)
     g.rect(-2, -2, w + 4, 1).fill({ color: lighten(shelf.frame, 0.30), alpha: 0.7 })
-    // 프레임 우측 그림자
     g.rect(w + 2, -1, 1, h + 3).fill({ color: darken(shelf.frame, 0.40), alpha: 0.8 })
   }
 
-  // 3. wood 본체
+  // 3. wood 본체 (프레임 색 — 인셋 위에서 안쪽 텍스처가 보임)
   g.roundRect(0, 0, w, h, 5).fill(shelf.wood)
-
-  // 4. wood 상단 edge highlight + 우/하단 edge shadow (3D 느낌)
+  // wood 상/우/하 edge 음영
   g.rect(1, 1, w - 2, 1).fill({ color: lighten(shelf.wood, 0.20), alpha: 0.6 })
   g.rect(w - 1, 1, 1, h - 2).fill({ color: shelf.shadow, alpha: 0.5 })
   g.rect(1, h - 1, w - 2, 1).fill({ color: shelf.shadow, alpha: 0.7 })
 
-  // 5. 안쪽 inset 그림자 (프레임이 만드는 깊이감)
+  container.addChild(g)
+
+  // 4. ★ 안쪽 백패널 — 베이크 wood grain Sprite (Graphics 위에 얹음)
   const innerPad = 6
   const innerW = w - innerPad * 2
   const innerH = h - innerPad * 2
-  g.rect(innerPad - 1, innerPad - 1, innerW + 2, 1.5).fill({ color: '#000000', alpha: 0.45 })
-  g.rect(innerPad - 1, innerPad, 1, innerH).fill({ color: '#000000', alpha: 0.25 })
+  const back = new Sprite(getBackPanelTexture(shelf, innerW, innerH))
+  back.x = innerPad
+  back.y = innerPad
+  container.addChild(back)
 
-  // 6. wood grain — 4 vertical lines, shelf.id 기반 deterministic offset
-  for (let i = 0; i < 4; i++) {
-    const gx = innerPad + 2 + (i * (innerW - 4)) / 3 + ((data.id * 13 + i * 7) % 6)
-    g.rect(gx, innerPad, 1, innerH).fill({ color: shelf.shadow, alpha: 0.16 })
-  }
+  // 5. 안쪽 inset 그림자 + 선반 + 책 = 또 다른 단일 Graphics
+  const g2 = new Graphics()
 
-  // 7. 선반 4단 — 각 단마다 상단 광택 + 아래 그림자
+  // 안쪽 inset (프레임이 만드는 깊이감 — 백패널 위로 얹힘)
+  g2.rect(innerPad - 1, innerPad - 1, innerW + 2, 1.5).fill({ color: '#000000', alpha: 0.55 })
+  g2.rect(innerPad - 1, innerPad,     1.2, innerH).fill({ color: '#000000', alpha: 0.35 })
+  g2.rect(innerPad + innerW - 0.2, innerPad, 1.2, innerH).fill({ color: '#000000', alpha: 0.20 })
+
+  // 6. 선반 4단 (top sheen + bottom shadow per row)
   const levels = 4
   const levelH = innerH / levels
   for (let lv = 0; lv < levels; lv++) {
     const ly = innerPad + lv * levelH
-    // 선반 윗면 광택 (책이 앉는 면)
-    g.rect(innerPad, ly, innerW, 1.2).fill({ color: lighten(shelf.wood, 0.20), alpha: 0.5 })
+    g2.rect(innerPad, ly, innerW, 1.3).fill({ color: lighten(shelf.wood, 0.22), alpha: 0.6 })
   }
   for (let lv = 1; lv < levels; lv++) {
     const ly = innerPad + lv * levelH
-    // 선반 아래 그림자 (divider)
-    g.rect(innerPad, ly - 2, innerW, 2).fill({ color: shelf.shadow, alpha: 0.55 })
+    g2.rect(innerPad, ly - 2.5, innerW, 2).fill({ color: shelf.shadow, alpha: 0.55 })
   }
 
-  // 8. 책들 (level당 7~8권 → 4단 × 8 = 32 ≥ 30 한도)
+  // 7. 책 — book.coverColor 그대로, 위에 4-layer 디테일
   const booksPerLevel = Math.max(1, Math.floor(innerW / 12))
   const bookGap = 2
   const bookWidth = (innerW - bookGap * (booksPerLevel - 1)) / booksPerLevel
@@ -627,21 +701,16 @@ function drawBookshelf(
     const lighter = lighten(book.coverColor, 0.25)
     const darker  = darken(book.coverColor, 0.35)
 
-    // 본체 — 사용자가 고른 coverColor 그대로
-    g.rect(bx, by, bookWidth, bh).fill(book.coverColor)
-    // 좌측 하이라이트 (창문 빛 받는 면)
-    g.rect(bx, by + 1, 0.9, bh - 2).fill({ color: lighter, alpha: 0.85 })
-    // 우측 책등 그림자
-    g.rect(bx + bookWidth - 1, by + 1, 0.9, bh - 2).fill({ color: darker, alpha: 0.7 })
-    // 상단 캡 (밝게)
-    g.rect(bx + 0.5, by, bookWidth - 1, 1).fill({ color: lighter, alpha: 0.5 })
-    // 발치 접지 그림자 (선반과 만나는 부분)
-    g.rect(bx, by + bh, bookWidth, 1).fill({ color: '#000000', alpha: 0.45 })
+    g2.rect(bx, by, bookWidth, bh).fill(book.coverColor)
+    g2.rect(bx, by + 1, 0.9, bh - 2).fill({ color: lighter, alpha: 0.85 })
+    g2.rect(bx + bookWidth - 1, by + 1, 0.9, bh - 2).fill({ color: darker, alpha: 0.7 })
+    g2.rect(bx + 0.5, by, bookWidth - 1, 1).fill({ color: lighter, alpha: 0.5 })
+    g2.rect(bx, by + bh, bookWidth, 1).fill({ color: '#000000', alpha: 0.45 })
   })
 
-  container.addChild(g)
+  container.addChild(g2)
 
-  // 9. Title label (책장 아래) — floor 색에 따라 흰/검 자동
+  // 8. Title label
   const label = new Text({
     text: data.title,
     style: {
@@ -657,7 +726,7 @@ function drawBookshelf(
   label.y = h + 6
   container.addChild(label)
 
-  // 10. Capacity (우상단)
+  // 9. Capacity
   const cap = new Text({
     text: `${data.books.length} / ${data.maxBooks}`,
     style: {
@@ -673,7 +742,6 @@ function drawBookshelf(
   cap.alpha = 0.7
   container.addChild(cap)
 
-  // Hover / click
   container.on('pointerover', () => container.scale.set(1.04))
   container.on('pointerout',  () => container.scale.set(1.0))
   container.on('pointertap', (e: FederatedPointerEvent) => {
