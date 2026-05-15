@@ -287,10 +287,14 @@ function drawScene(
     maxReach: Math.min(H * 0.88, 560),
     dustCount: portrait ? 24 : 32,
   })
-  stage.addChild(light.container)
-  // Ambient sits on top of everything (including private door / storage chip)
-  // so the mood tints the entire room. MULTIPLY blend keeps content visible.
+  // Z-order matters: ambient (MULTIPLY) MUST be added BEFORE the cone container.
+  // Pixi addChild is LIFO so the later child paints on top. If ambient sits
+  // above cone, the cone's additive light gets multiplied back down into the
+  // dark mood tint — the entrance light disappears into the brown wash. With
+  // ambient below, it tints everything painted up to this point (floor,
+  // shelves, pedestal) but the cone/hotspot/dust draw cleanly on top.
   stage.addChild(light.ambientLayer)
+  stage.addChild(light.container)
   light.setPreset(moodToPresetName(p.library.entranceMood), true)
   light.attachTicker()
   entranceLightRef.current = light
