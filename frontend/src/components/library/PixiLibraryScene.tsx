@@ -324,31 +324,71 @@ function moodToPresetName(mood: EntranceMood): EntrancePresetName {
 // ─── Floor (covers entire canvas) ───────────────────────
 
 function drawFloor(stage: Container, W: number, H: number, floor: FloorPalette) {
-  // Plank pattern across whole canvas. The `app.renderer.background` already
-  // paints the primary color, so we just overlay the seams here.
-  const plankH = 26
+  // Real-wood brick pattern: each plank row holds boards of varying width with
+  // per-board lightness tones, and odd rows shift the brick start so seams
+  // don't line up vertically. Same algorithm runs on all floor themes; each
+  // theme's `primary` seeds its own tone palette so the brick character stays
+  // consistent regardless of color.
+  const plankH = 28
   const planks = Math.ceil(H / plankH) + 1
+
+  // Five tones around the theme's primary (~ ±12% lightness). Picked
+  // deterministically per board so the same library always renders the same
+  // floor — no flickering between renders.
+  const tones: string[] = [
+    darken(floor.primary, 0.12),
+    darken(floor.primary, 0.06),
+    floor.primary,
+    lighten(floor.primary, 0.06),
+    lighten(floor.primary, 0.12),
+  ]
+
   for (let i = 0; i < planks; i++) {
     const y = i * plankH
-    // Horizontal seam between planks
-    const seam = new Graphics()
-    seam.rect(0, y, W, 1).fill({ color: floor.shadow, alpha: 0.55 })
-    stage.addChild(seam)
+    const rowSeed = i * 9301 + 49297
+    // Odd rows shift left by half a typical board so vertical seams stagger
+    // (brick layout). The first board on shifted rows starts off-canvas so
+    // its left edge is clipped — looks like the wood runs under the wall.
+    const rowOffset = (i & 1) ? -55 : 0
 
-    // Vertical seams (between boards within a plank row), seeded for stability
-    const seed = i * 9301 + 49297
-    let pos = (seed % 220)
-    while (pos < W) {
-      const v = new Graphics()
-      v.rect(pos, y + 2, 1, plankH - 4).fill({ color: floor.shadow, alpha: 0.4 })
-      stage.addChild(v)
-      pos += 80 + ((seed >> (i % 5)) % 140)
+    let x = rowOffset
+    let boardIdx = 0
+    while (x < W) {
+      // Board width 90–140 — gentle variation so the eye finds rhythm without
+      // an obvious repeat. (rowSeed * boardIdx) gives different widths each row.
+      const boardW = 90 + ((rowSeed * (boardIdx * 31 + 7)) & 0xff) % 50
+      const drawX = Math.max(0, x)
+      const drawW = Math.min(W, x + boardW) - drawX
+      if (drawW <= 0) {
+        x += boardW
+        boardIdx++
+        continue
+      }
+
+      // Tone selection — hash row+board into the tones array. Bitwise dance
+      // keeps results stable + distributed without true RNG.
+      const toneIdx = Math.abs((rowSeed ^ (boardIdx * 2654435761)) >>> 0) % tones.length
+      const board = new Graphics()
+      board.rect(drawX, y, drawW, plankH - 1).fill({ color: tones[toneIdx], alpha: 1 })
+      stage.addChild(board)
+
+      // Vertical seam at the right edge of this board (skip if board reaches
+      // the canvas edge — no shadow inside the wall).
+      const rightEdge = x + boardW
+      if (rightEdge < W) {
+        const v = new Graphics()
+        v.rect(rightEdge - 1, y, 1, plankH - 1).fill({ color: floor.shadow, alpha: 0.55 })
+        stage.addChild(v)
+      }
+
+      x += boardW
+      boardIdx++
     }
 
-    // Subtle horizontal grain wash on each plank
-    const wash = new Graphics()
-    wash.rect(0, y + 8, W, 1).fill({ color: floor.shadow, alpha: 0.1 })
-    stage.addChild(wash)
+    // Horizontal seam between this plank row and the next.
+    const hSeam = new Graphics()
+    hSeam.rect(0, y + plankH - 1, W, 1).fill({ color: floor.shadow, alpha: 0.5 })
+    stage.addChild(hSeam)
   }
 }
 
@@ -1011,6 +1051,15 @@ function darken(hex: string, amount: number): string {
   const nr = Math.round(r * f)
   const ng = Math.round(g * f)
   const nb = Math.round(b * f)
+  return '#' + [nr, ng, nb].map((v) => v.toString(16).padStart(2, '0')).join('')
+}
+
+function lighten(hex: string, amount: number): string {
+  const [r, g, b] = parseHex(hex)
+  const f = Math.max(0, Math.min(1, amount))
+  const nr = Math.round(r + (255 - r) * f)
+  const ng = Math.round(g + (255 - g) * f)
+  const nb = Math.round(b + (255 - b) * f)
   return '#' + [nr, ng, nb].map((v) => v.toString(16).padStart(2, '0')).join('')
 }
 
