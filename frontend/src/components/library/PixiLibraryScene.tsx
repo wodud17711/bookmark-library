@@ -285,7 +285,9 @@ function drawScene(
     ? Math.min(W * 0.42, 220)
     : Math.min(W * 0.24, 320)
   const windowFrameY = 4
-  const windowFrameH = 16
+  // Thinner window — reference photos show frame height ~10% of width,
+  // almost rectangular (only slightly rounded corners). 16px was chunky.
+  const windowFrameH = 9
   drawEntranceWindow(stage, W, windowFrameW, windowFrameY, windowFrameH)
 
   // Build the natural-light layers: cone + hotspot + dust around the entrance,
@@ -442,7 +444,8 @@ function drawEntranceWindow(
   windowH: number,
 ) {
   const windowX = (W - windowW) / 2
-  const radius = 7
+  // Mostly rectangular — reference photos have only a hint of corner rounding.
+  const radius = 3
 
   // Outer frame (darker, sits ~2px outside the inner pane)
   const frame = new Graphics()
