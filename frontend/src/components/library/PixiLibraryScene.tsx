@@ -13,6 +13,7 @@ import {
   type FloorPalette,
   type ShelfPalette,
 } from '../../utils/shelfThemes'
+import { EntranceLight, type EntrancePresetName } from './entranceLight'
 
 interface Props {
   library: Library
@@ -73,6 +74,10 @@ function detectPortraitMode(): PortraitMode {
 export function PixiLibraryScene(props: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const appRef = useRef<Application | null>(null)
+  // Long-lived light instance — ticker callback + dust particles persist across
+  // re-renders. drawScene tears it down + recreates so the canvas wipe pattern
+  // (stage.removeChildAt loop) doesn't leave a stale ticker handler running.
+  const entranceLightRef = useRef<EntranceLight | null>(null)
   const propsRef = useRef(props)
   propsRef.current = props
 
@@ -127,7 +132,7 @@ export function PixiLibraryScene(props: Props) {
       // browser-handled vertical pan while still letting Pixi receive taps.
       app.canvas.style.touchAction = 'pan-y'
 
-      drawScene(app, propsRef.current)
+      drawScene(app, propsRef.current, entranceLightRef)
 
       resizeObserver = new ResizeObserver(() => {
         const a = appRef.current
@@ -136,7 +141,7 @@ export function PixiLibraryScene(props: Props) {
         const h = host.clientHeight
         if (w === 0 || h === 0) return
         a.renderer.resize(w, h)
-        drawScene(a, propsRef.current)
+        drawScene(a, propsRef.current, entranceLightRef)
       })
       resizeObserver.observe(host)
     }
@@ -146,6 +151,10 @@ export function PixiLibraryScene(props: Props) {
     return () => {
       cancelled = true
       resizeObserver?.disconnect()
+      if (entranceLightRef.current) {
+        entranceLightRef.current.destroy()
+        entranceLightRef.current = null
+      }
       if (appRef.current) {
         appRef.current.destroy(true, { children: true })
         appRef.current = null
@@ -156,7 +165,7 @@ export function PixiLibraryScene(props: Props) {
   useEffect(() => {
     const a = appRef.current
     if (!a) return
-    drawScene(a, propsRef.current)
+    drawScene(a, propsRef.current, entranceLightRef)
   }, [
     props.library,
     props.favoritesCount,
@@ -221,10 +230,22 @@ interface ShelfBox {
 // Scene
 // ─────────────────────────────────────────────────────────────────
 
-function drawScene(app: Application, p: Props) {
+function drawScene(
+  app: Application,
+  p: Props,
+  entranceLightRef: { current: EntranceLight | null }
+) {
   const shelf = paletteFor(p.library.paletteName)
   const floor = floorPaletteFor(p.library.floorPaletteName)
   const stage = app.stage
+
+  // Tear down the previous EntranceLight first so its ticker handler is
+  // unregistered before the stage wipe destroys its child graphics. Otherwise
+  // the ticker would tick once on a half-destroyed sprite tree.
+  if (entranceLightRef.current) {
+    entranceLightRef.current.destroy()
+    entranceLightRef.current = null
+  }
 
   while (stage.children.length > 0) {
     const c = stage.removeChildAt(0)
@@ -240,7 +261,6 @@ function drawScene(app: Application, p: Props) {
 
   drawFloor(stage, W, H, floor)
   drawWallBorders(stage, W, H, floor)
-  drawEntranceSpill(stage, W, floor, p)
   drawSilhouettes(stage, W, H, p.library, floor, portrait)
 
   const publicShelves = p.library.bookshelves.filter((s) => s.zone === 'PUBLIC')
@@ -251,13 +271,45 @@ function drawScene(app: Application, p: Props) {
   if (!p.readonly) {
     drawPrivateDoor(stage, W, H, shelf, floor, p, portrait)
   }
-  drawEntrance(stage, W, floor, p)
+
+  // Build the natural-light layers: cone + rays + hotspot + dust around the
+  // entrance, plus a MULTIPLY ambient overlay that tints the whole canvas to
+  // the time-of-day mood. Ticker callback drives flicker + dust + lerp.
+  const lightW = Math.min(300, W * 0.42)
+  const light = new EntranceLight(app, {
+    x: W / 2,
+    y: 6,
+    windowWidth: lightW * 0.75,
+    maxReach: Math.min(H * 0.88, 560),
+    dustCount: portrait ? 22 : 28,
+  })
+  stage.addChild(light.container)
+  // Ambient sits on top of everything (including private door / storage chip)
+  // so the mood tints the entire room. MULTIPLY blend keeps content visible.
+  stage.addChild(light.ambientLayer)
+  light.setPreset(moodToPresetName(p.library.entranceMood), true)
+  light.attachTicker()
+  entranceLightRef.current = light
+
+  // Invisible click hit area for the entrance — replaces the old drawEntrance
+  // interactive container. Added LAST so it sits on top of cone/ambient and
+  // catches taps without being visually affected.
+  drawEntranceHitArea(stage, W, p)
+
   if (!p.readonly) {
     drawStorage(stage, W, floor, p)
   }
 
   if (publicShelves.length === 0 && p.favoritesCount === 0) {
     drawEmptyMessage(stage, W, H, floor)
+  }
+}
+
+function moodToPresetName(mood: EntranceMood): EntrancePresetName {
+  switch (mood) {
+    case 'DAY':     return 'day'
+    case 'EVENING': return 'evening'
+    case 'NIGHT':   return 'night'
   }
 }
 
@@ -304,90 +356,30 @@ function drawWallBorders(stage: Container, W: number, H: number, floor: FloorPal
   stage.addChild(wall)
 }
 
-// ─── Entrance ───────────────────────────────────────────
+// ─── Entrance click hit area ────────────────────────────
+//
+// Visual entrance light is now rendered by EntranceLight (see entranceLight.ts)
+// — five blended layers (ambient / cone / rays / hotspot / dust) with a live
+// ticker. The interactive hit area is kept separate so the cinematic light
+// layers don't have to absorb pointer events.
 
-function drawEntrance(stage: Container, W: number, floor: FloorPalette, p: Props) {
-  const moodColor = entranceLightFor(p.library.entranceMood)
+function drawEntranceHitArea(stage: Container, W: number, p: Props) {
+  if (p.readonly) return
   const lightW = Math.min(300, W * 0.42)
   const lightX = (W - lightW) / 2
 
-  const container = new Container()
-  if (!p.readonly) {
-    container.eventMode = 'static'
-    container.cursor = 'pointer'
-  }
-
-  // Door frame band at the very top
-  const frame = new Graphics()
-  frame
-    .roundRect(lightX - 4, 0, lightW + 8, 8, 2)
-    .fill({ color: darken(floor.primary, 0.55), alpha: 0.65 })
-  container.addChild(frame)
-
-  // Glow core
-  for (let i = 0; i < 14; i++) {
-    const t = i / 14
-    const g = new Graphics()
-    const inset = t * 30
-    g.rect(lightX + inset, 6, lightW - inset * 2, 4).fill({
-      color: moodColor,
-      alpha: 0.28 * (1 - t * 0.7),
-    })
-    container.addChild(g)
-  }
-
-  // Soft falloff
-  for (let i = 0; i < 10; i++) {
-    const t = i / 10
-    const g = new Graphics()
-    g.rect(lightX, 8 + t * (ENTRANCE_HEIGHT - 16), lightW, 6).fill({
-      color: moodColor,
-      alpha: 0.12 * (1 - t),
-    })
-    container.addChild(g)
-  }
-
-  if (!p.readonly) {
-    let hover = false
-    const drawHover = () => { container.alpha = hover ? 1.0 : 0.92 }
-    drawHover()
-    container.on('pointerover', () => { hover = true; drawHover() })
-    container.on('pointerout', () => { hover = false; drawHover() })
-    container.on('pointertap', (e: FederatedPointerEvent) => {
-      e.stopPropagation()
-      p.onEntranceClick()
-    })
-  }
-  stage.addChild(container)
-}
-
-function drawEntranceSpill(stage: Container, W: number, _floor: FloorPalette, p: Props) {
-  const moodColor = entranceLightFor(p.library.entranceMood)
-  const cx = W / 2
-  // A single elongated pool of light just below the entrance.
-  // Stacked translucent ellipses (outer → inner) accumulate to form a soft
-  // radial falloff with no hard edges.
-  const cy = ENTRANCE_HEIGHT + 28
-  const layers = 20
-  for (let i = layers - 1; i >= 0; i--) {
-    const t = i / (layers - 1) // 1 = outermost (largest, faintest), 0 = innermost
-    const rx = 55 + t * 105    // horizontal radius: ~55 inner → ~160 outer
-    const ry = 26 + t * 44     // vertical radius: ~26 inner → ~70 outer
-    const g = new Graphics()
-    g.ellipse(cx, cy, rx, ry).fill({
-      color: moodColor,
-      alpha: 0.045 * (1 - t * 0.65),
-    })
-    stage.addChild(g)
-  }
-}
-
-function entranceLightFor(mood: EntranceMood): string {
-  switch (mood) {
-    case 'DAY':     return '#FFE0A0'
-    case 'EVENING': return '#E8865B'
-    case 'NIGHT':   return '#7BA0D9'
-  }
+  const hit = new Graphics()
+  // Fully transparent rectangle — visually invisible but Graphics' hit testing
+  // still picks up taps over the filled region. Sits above the ambient overlay
+  // so it always receives the entrance tap.
+  hit.rect(lightX, 0, lightW, ENTRANCE_HEIGHT).fill({ color: 0xFFFFFF, alpha: 0 })
+  hit.eventMode = 'static'
+  hit.cursor = 'pointer'
+  hit.on('pointertap', (e: FederatedPointerEvent) => {
+    e.stopPropagation()
+    p.onEntranceClick()
+  })
+  stage.addChild(hit)
 }
 
 // ─── Bookshelf layout + draw ────────────────────────────
