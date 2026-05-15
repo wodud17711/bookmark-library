@@ -278,12 +278,12 @@ function drawScene(
   // it reads as "sunlight through a window" instead of an unexplained glow.
   // Sits BELOW the ambient overlay so it tints with the time-of-day mood.
   //
-  // Width/position is shared with the EntranceLight call below so the cone
-  // hotspot lines up 1:1 with the window pane (EntranceLight's hotspot is
-  // windowWidth * 1.6 — solve backwards to get matching geometry).
+  // Window pane is intentionally NARROWER than the light spill below — the
+  // 1:1 frame-to-light match looked overpowering. Now the cone reads as light
+  // pouring out and spilling sideways past the frame edges.
   const windowFrameW = portrait
-    ? Math.min(W * 0.62, 320)
-    : Math.min(W * 0.55, 760)
+    ? Math.min(W * 0.42, 220)
+    : Math.min(W * 0.24, 320)
   const windowFrameY = 4
   const windowFrameH = 16
   drawEntranceWindow(stage, W, windowFrameW, windowFrameY, windowFrameH)
@@ -292,15 +292,14 @@ function drawScene(
   // plus a MULTIPLY ambient overlay that tints the whole canvas to the
   // time-of-day mood. Ticker callback drives flicker + dust + lerp.
   //
-  // Geometry is derived from the window frame above so cone/hotspot align
-  // perfectly with the pane:
-  //   - y starts at the window's bottom edge (light pours out of the frame)
-  //   - windowWidth = frameW / 1.6 so hotspot.width (= windowWidth * 1.6)
-  //     matches the pane width exactly
+  // y starts at the window's bottom edge (light pours out of the frame).
+  // windowWidth is INTENTIONALLY larger than the frame's pane — the light
+  // spill is wider than the window so it reads as sunlight scattering past
+  // the frame edges (matches reference photo).
   const light = new EntranceLight(app, {
     x: W / 2,
     y: windowFrameY + windowFrameH,
-    windowWidth: windowFrameW / 1.6,
+    windowWidth: portrait ? Math.min(280, W * 0.50) : Math.min(350, W * 0.30),
     maxReach: Math.min(H * 0.88, 560),
     dustCount: portrait ? 24 : 32,
   })
