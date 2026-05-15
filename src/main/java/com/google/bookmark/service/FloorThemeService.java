@@ -71,8 +71,8 @@ public class FloorThemeService {
         t.setDisplayName("크림 파인");
         t.setDescription("밝은 크림빛 메이플 마룻바닥. 햇빛 잘 드는 카페 느낌.");
         t.setTier(BookshelfThemeTier.FREE);
-        t.setPrimaryColor("#E5D2B0");
-        t.setShadowColor("#C9B088");
+        t.setPrimaryColor("#E2C99A");
+        t.setShadowColor("#9C7E4F");
         t.setSortOrder(0);
         return t;
     }
@@ -83,8 +83,8 @@ public class FloorThemeService {
         t.setDisplayName("골든 오크");
         t.setDescription("따뜻한 황금빛 오크. 클래식한 동네 도서관 느낌.");
         t.setTier(BookshelfThemeTier.FREE);
-        t.setPrimaryColor("#B5824D");
-        t.setShadowColor("#8B5A3C");
+        t.setPrimaryColor("#B07A33");
+        t.setShadowColor("#5C390F");
         t.setSortOrder(1);
         return t;
     }
@@ -95,8 +95,8 @@ public class FloorThemeService {
         t.setDisplayName("다크 웬지");
         t.setDescription("짙은 웬지 마루. 위스키 한 잔 같은 무드.");
         t.setTier(BookshelfThemeTier.FREE);
-        t.setPrimaryColor("#3D2817");
-        t.setShadowColor("#1F140A");
+        t.setPrimaryColor("#3A2918");
+        t.setShadowColor("#120A05");
         t.setSortOrder(2);
         return t;
     }

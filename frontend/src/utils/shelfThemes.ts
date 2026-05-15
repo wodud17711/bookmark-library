@@ -44,16 +44,16 @@ export const SHELF_PALETTES: Record<string, ShelfPalette> = {
 
 export const FLOOR_PALETTES: Record<string, FloorPalette> = {
   'cream-pine': {
-    primary: '#E5D2B0',
-    shadow: '#C9B088',
+    primary: '#E2C99A',
+    shadow:  '#9C7E4F',
   },
   'golden-oak': {
-    primary: '#B5824D',
-    shadow: '#8B5A3C',
+    primary: '#B07A33',
+    shadow:  '#5C390F',
   },
   'dark-wenge': {
-    primary: '#3D2817',
-    shadow: '#1F140A',
+    primary: '#3A2918',
+    shadow:  '#120A05',
   },
 }
 

@@ -338,40 +338,48 @@ function moodToPresetName(mood: EntranceMood): EntrancePresetName {
 
 // ─── Floor (covers entire canvas) ───────────────────────
 
-function drawFloor(stage: Container, W: number, H: number, floor: FloorPalette) {
-  // Real-wood brick pattern: each plank row holds boards of varying width with
-  // per-board lightness tones, and odd rows shift the brick start so seams
-  // don't line up vertically. Same algorithm runs on all floor themes; each
-  // theme's `primary` seeds its own tone palette so the brick character stays
-  // consistent regardless of color.
-  const plankH = 28
+/**
+ * 깔끔한 일러스트풍 마루 — 가로 판자(plank) staggered brick layout.
+ *
+ * 디자인 노트:
+ *   - 톤은 base 비중을 압도적으로 높여서 (3:1:1) 얼룩진 느낌 제거.
+ *   - ±6% lightness 만 사용해 변주가 눈에 거슬리지 않음.
+ *   - 판자 폭/높이를 키워 (160~280 × 36) "너른 마루" 인상.
+ *   - 옹이/결무늬 등 추가 노이즈 없음 — 카툰풍을 피함.
+ *   - 모든 도형을 단일 Graphics 로 배칭 → 수십~수백 개 child 안 만듦.
+ *   - deterministic — 같은 (rowSeed, boardIdx)는 항상 같은 톤/너비.
+ */
+function drawFloor(stage: Container, W: number, H: number, floor: FloorPalette): void {
+  const plankH = 36
+  const minBoardW = 160
+  const maxBoardW = 280
   const planks = Math.ceil(H / plankH) + 1
 
-  // Five tones around the theme's primary (~ ±12% lightness). Picked
-  // deterministically per board so the same library always renders the same
-  // floor — no flickering between renders.
+  // 3톤 (base 비중 3:1:1, ±6% 미세 변주)
   const tones: string[] = [
-    darken(floor.primary, 0.12),
-    darken(floor.primary, 0.06),
+    floor.primary,
+    floor.primary,
     floor.primary,
     lighten(floor.primary, 0.06),
-    lighten(floor.primary, 0.12),
+    darken(floor.primary, 0.06),
   ]
+  const sheen = lighten(floor.primary, 0.12)
+
+  // 모든 판자/솔기/광택을 단일 Graphics 에 배칭 — child 수 최소화
+  const g = new Graphics()
 
   for (let i = 0; i < planks; i++) {
     const y = i * plankH
     const rowSeed = i * 9301 + 49297
-    // Odd rows shift left by half a typical board so vertical seams stagger
-    // (brick layout). The first board on shifted rows starts off-canvas so
-    // its left edge is clipped — looks like the wood runs under the wall.
-    const rowOffset = (i & 1) ? -55 : 0
+    // 짝수 행은 그대로, 홀수 행은 보드 폭의 약 반만큼 좌측 시프트 (brick stagger)
+    const rowOffset = (i & 1) ? -Math.floor(maxBoardW / 2) : 0
 
     let x = rowOffset
     let boardIdx = 0
     while (x < W) {
-      // Board width 90–140 — gentle variation so the eye finds rhythm without
-      // an obvious repeat. (rowSeed * boardIdx) gives different widths each row.
-      const boardW = 90 + ((rowSeed * (boardIdx * 31 + 7)) & 0xff) % 50
+      // 보드 폭 160~280 — rowSeed × boardIdx 해시로 분포
+      const widthHash = (rowSeed * (boardIdx * 31 + 7)) & 0xff
+      const boardW = minBoardW + (widthHash % (maxBoardW - minBoardW))
       const drawX = Math.max(0, x)
       const drawW = Math.min(W, x + boardW) - drawX
       if (drawW <= 0) {
@@ -380,31 +388,28 @@ function drawFloor(stage: Container, W: number, H: number, floor: FloorPalette) 
         continue
       }
 
-      // Tone selection — hash row+board into the tones array. Bitwise dance
-      // keeps results stable + distributed without true RNG.
+      // 본체
       const toneIdx = Math.abs((rowSeed ^ (boardIdx * 2654435761)) >>> 0) % tones.length
-      const board = new Graphics()
-      board.rect(drawX, y, drawW, plankH - 1).fill({ color: tones[toneIdx], alpha: 1 })
-      stage.addChild(board)
+      g.rect(drawX, y, drawW, plankH).fill({ color: tones[toneIdx], alpha: 1 })
 
-      // Vertical seam at the right edge of this board (skip if board reaches
-      // the canvas edge — no shadow inside the wall).
+      // 상단 1px 미세 광택 (창문 빛 받는 면)
+      g.rect(drawX, y, drawW, 1).fill({ color: sheen, alpha: 0.18 })
+
+      // 우측 세로 솔기 (보드 우측 끝)
       const rightEdge = x + boardW
       if (rightEdge < W) {
-        const v = new Graphics()
-        v.rect(rightEdge - 1, y, 1, plankH - 1).fill({ color: floor.shadow, alpha: 0.55 })
-        stage.addChild(v)
+        g.rect(rightEdge - 1, y, 1, plankH).fill({ color: floor.shadow, alpha: 0.55 })
       }
 
       x += boardW
       boardIdx++
     }
 
-    // Horizontal seam between this plank row and the next.
-    const hSeam = new Graphics()
-    hSeam.rect(0, y + plankH - 1, W, 1).fill({ color: floor.shadow, alpha: 0.5 })
-    stage.addChild(hSeam)
+    // 행 사이 가로 솔기
+    g.rect(0, y + plankH - 1, W, 1).fill({ color: floor.shadow, alpha: 0.5 })
   }
+
+  stage.addChild(g)
 }
 
 // ─── Wall borders (subtle dark line at canvas edges) ────
@@ -1099,19 +1104,21 @@ function invertReadable(hex: string): string {
 function darken(hex: string, amount: number): string {
   const [r, g, b] = parseHex(hex)
   const f = 1 - Math.max(0, Math.min(1, amount))
-  const nr = Math.round(r * f)
-  const ng = Math.round(g * f)
-  const nb = Math.round(b * f)
-  return '#' + [nr, ng, nb].map((v) => v.toString(16).padStart(2, '0')).join('')
+  return rgbToHex(Math.round(r * f), Math.round(g * f), Math.round(b * f))
 }
 
 function lighten(hex: string, amount: number): string {
   const [r, g, b] = parseHex(hex)
   const f = Math.max(0, Math.min(1, amount))
-  const nr = Math.round(r + (255 - r) * f)
-  const ng = Math.round(g + (255 - g) * f)
-  const nb = Math.round(b + (255 - b) * f)
-  return '#' + [nr, ng, nb].map((v) => v.toString(16).padStart(2, '0')).join('')
+  return rgbToHex(
+    Math.round(r + (255 - r) * f),
+    Math.round(g + (255 - g) * f),
+    Math.round(b + (255 - b) * f),
+  )
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  return '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')
 }
 
 function parseHex(hex: string): [number, number, number] {
