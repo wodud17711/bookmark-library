@@ -531,68 +531,85 @@ function layoutShelves(
   return boxes
 }
 
+/**
+ * 책장 한 개 그리기 — 가구다운 깊이감을 위한 다층 디테일:
+ *   - 발치 drop shadow
+ *   - (옵션) 산업용 metal frame 액센트 (industrial 테마만)
+ *   - wood 본체 + 상/우/하 edge 하이라이트/그림자
+ *   - 안쪽 inset 그림자 (프레임 두께감)
+ *   - wood grain 4줄 (shelf.id deterministic offset)
+ *   - 선반 4단 = 30권 한도, 각 단마다 상단 광택 + 아래 그림자
+ *   - 책마다 좌측 하이라이트 / 우측 책등 그림자 / 상단 캡 / 발치 그림자
+ *     ※ book.coverColor 는 사용자가 고른 색 — 절대 덮어쓰지 않음, 위에 alpha 디테일만 얹음
+ *
+ * 성능: 모든 도형을 단일 Graphics 에 배칭 → child 수 최소.
+ */
 function drawBookshelf(
   stage: Container,
   box: ShelfBox,
   shelf: ShelfPalette,
   floor: FloorPalette,
   onShelfClick: (id: number) => void,
-) {
+): void {
   const { shelf: data, x, y, w, h } = box
   const container = new Container()
+  // pivot 중앙 → hover scale 1.04 가 중앙 기준으로 일어남
   container.x = x + w / 2
   container.y = y + h / 2
   container.pivot.set(w / 2, h / 2)
   container.eventMode = 'static'
   container.cursor = 'pointer'
 
-  // Shadow on the floor underneath the shelf
-  const shadow = new Graphics()
-  shadow.roundRect(3, 5, w, h, 6).fill({ color: '#000', alpha: 0.22 })
-  container.addChild(shadow)
+  const g = new Graphics()
 
+  // 1. 발치 그림자 (책장 → floor)
+  g.roundRect(3, 5, w, h, 6).fill({ color: '#000000', alpha: 0.22 })
+
+  // 2. (옵션) 산업용 metal frame
   if (shelf.frame) {
-    const frame = new Graphics()
-    frame.roundRect(-3, -3, w + 6, h + 6, 4).fill(shelf.frame)
-    container.addChild(frame)
+    g.roundRect(-3, -3, w + 6, h + 6, 4).fill(shelf.frame)
+    // 프레임 상단 광택 (1px)
+    g.rect(-2, -2, w + 4, 1).fill({ color: lighten(shelf.frame, 0.30), alpha: 0.7 })
+    // 프레임 우측 그림자
+    g.rect(w + 2, -1, 1, h + 3).fill({ color: darken(shelf.frame, 0.40), alpha: 0.8 })
   }
 
-  // Wood backing
-  const wood = new Graphics()
-  wood.roundRect(0, 0, w, h, 5).fill(shelf.wood)
-  container.addChild(wood)
+  // 3. wood 본체
+  g.roundRect(0, 0, w, h, 5).fill(shelf.wood)
 
-  // Wood grain
-  for (let i = 0; i < 4; i++) {
-    const gx = 8 + i * (w - 16) / 3 + ((data.id * 13 + i * 7) % 6)
-    const grain = new Graphics()
-    grain.rect(gx, 4, 1, h - 8).fill({ color: shelf.shadow, alpha: 0.18 })
-    container.addChild(grain)
-  }
+  // 4. wood 상단 edge highlight + 우/하단 edge shadow (3D 느낌)
+  g.rect(1, 1, w - 2, 1).fill({ color: lighten(shelf.wood, 0.20), alpha: 0.6 })
+  g.rect(w - 1, 1, 1, h - 2).fill({ color: shelf.shadow, alpha: 0.5 })
+  g.rect(1, h - 1, w - 2, 1).fill({ color: shelf.shadow, alpha: 0.7 })
 
-  // Top highlight
-  const highlight = new Graphics()
-  highlight.rect(2, 2, w - 4, 1).fill({ color: '#FFFFFF', alpha: 0.18 })
-  container.addChild(highlight)
-
-  // Shelf level dividers
-  const levels = 4
+  // 5. 안쪽 inset 그림자 (프레임이 만드는 깊이감)
   const innerPad = 6
   const innerW = w - innerPad * 2
-  const levelH = (h - innerPad * 2) / levels
-  for (let lv = 0; lv <= levels; lv++) {
-    const ly = innerPad + lv * levelH
-    const divider = new Graphics()
-    divider.rect(innerPad, ly - 1, innerW, 2).fill(shelf.shadow)
-    if (lv < levels) {
-      const subShadow = new Graphics()
-      subShadow.rect(innerPad, ly + 1, innerW, 1).fill({ color: '#000', alpha: 0.18 })
-      container.addChild(subShadow)
-    }
-    container.addChild(divider)
+  const innerH = h - innerPad * 2
+  g.rect(innerPad - 1, innerPad - 1, innerW + 2, 1.5).fill({ color: '#000000', alpha: 0.45 })
+  g.rect(innerPad - 1, innerPad, 1, innerH).fill({ color: '#000000', alpha: 0.25 })
+
+  // 6. wood grain — 4 vertical lines, shelf.id 기반 deterministic offset
+  for (let i = 0; i < 4; i++) {
+    const gx = innerPad + 2 + (i * (innerW - 4)) / 3 + ((data.id * 13 + i * 7) % 6)
+    g.rect(gx, innerPad, 1, innerH).fill({ color: shelf.shadow, alpha: 0.16 })
   }
 
-  // Books
+  // 7. 선반 4단 — 각 단마다 상단 광택 + 아래 그림자
+  const levels = 4
+  const levelH = innerH / levels
+  for (let lv = 0; lv < levels; lv++) {
+    const ly = innerPad + lv * levelH
+    // 선반 윗면 광택 (책이 앉는 면)
+    g.rect(innerPad, ly, innerW, 1.2).fill({ color: lighten(shelf.wood, 0.20), alpha: 0.5 })
+  }
+  for (let lv = 1; lv < levels; lv++) {
+    const ly = innerPad + lv * levelH
+    // 선반 아래 그림자 (divider)
+    g.rect(innerPad, ly - 2, innerW, 2).fill({ color: shelf.shadow, alpha: 0.55 })
+  }
+
+  // 8. 책들 (level당 7~8권 → 4단 × 8 = 32 ≥ 30 한도)
   const booksPerLevel = Math.max(1, Math.floor(innerW / 12))
   const bookGap = 2
   const bookWidth = (innerW - bookGap * (booksPerLevel - 1)) / booksPerLevel
@@ -606,20 +623,31 @@ function drawBookshelf(
     const bh = Math.max(baselineH - 6, baselineH + variance)
     const bx = innerPad + col * (bookWidth + bookGap)
     const by = innerPad + lv * levelH + (levelH - bh) - 2
-    const bookGfx = new Graphics()
-    bookGfx.rect(bx, by, bookWidth, bh).fill(book.coverColor)
-    const spine = new Graphics()
-    spine.rect(bx, by, 1, bh).fill({ color: '#FFFFFF', alpha: 0.18 })
-    container.addChild(bookGfx)
-    container.addChild(spine)
+
+    const lighter = lighten(book.coverColor, 0.25)
+    const darker  = darken(book.coverColor, 0.35)
+
+    // 본체 — 사용자가 고른 coverColor 그대로
+    g.rect(bx, by, bookWidth, bh).fill(book.coverColor)
+    // 좌측 하이라이트 (창문 빛 받는 면)
+    g.rect(bx, by + 1, 0.9, bh - 2).fill({ color: lighter, alpha: 0.85 })
+    // 우측 책등 그림자
+    g.rect(bx + bookWidth - 1, by + 1, 0.9, bh - 2).fill({ color: darker, alpha: 0.7 })
+    // 상단 캡 (밝게)
+    g.rect(bx + 0.5, by, bookWidth - 1, 1).fill({ color: lighter, alpha: 0.5 })
+    // 발치 접지 그림자 (선반과 만나는 부분)
+    g.rect(bx, by + bh, bookWidth, 1).fill({ color: '#000000', alpha: 0.45 })
   })
 
-  // Title label below
+  container.addChild(g)
+
+  // 9. Title label (책장 아래) — floor 색에 따라 흰/검 자동
   const label = new Text({
     text: data.title,
     style: {
       fontFamily: 'Pretendard, system-ui, sans-serif',
       fontSize: 11,
+      fontWeight: '700',
       fill: invertReadable(floor.primary),
       align: 'center',
     },
@@ -629,23 +657,25 @@ function drawBookshelf(
   label.y = h + 6
   container.addChild(label)
 
-  // Capacity above
+  // 10. Capacity (우상단)
   const cap = new Text({
     text: `${data.books.length} / ${data.maxBooks}`,
     style: {
       fontFamily: 'Pretendard, system-ui, sans-serif',
       fontSize: 9,
+      fontWeight: '700',
       fill: invertReadable(floor.primary),
     },
   })
   cap.anchor.set(1, 1)
   cap.x = w
   cap.y = -4
-  cap.alpha = 0.65
+  cap.alpha = 0.7
   container.addChild(cap)
 
+  // Hover / click
   container.on('pointerover', () => container.scale.set(1.04))
-  container.on('pointerout', () => container.scale.set(1.0))
+  container.on('pointerout',  () => container.scale.set(1.0))
   container.on('pointertap', (e: FederatedPointerEvent) => {
     e.stopPropagation()
     onShelfClick(data.id)
