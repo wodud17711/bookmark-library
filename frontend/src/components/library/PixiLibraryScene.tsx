@@ -272,16 +272,19 @@ function drawScene(
     drawPrivateDoor(stage, W, H, shelf, floor, p, portrait)
   }
 
-  // Build the natural-light layers: cone + rays + hotspot + dust around the
-  // entrance, plus a MULTIPLY ambient overlay that tints the whole canvas to
-  // the time-of-day mood. Ticker callback drives flicker + dust + lerp.
-  const lightW = Math.min(300, W * 0.42)
+  // Build the natural-light layers: cone + hotspot + dust around the entrance,
+  // plus a MULTIPLY ambient overlay that tints the whole canvas to the
+  // time-of-day mood. Ticker callback drives flicker + dust + lerp.
+  //
+  // Parameters track the upstream design reference (windowWidth: 244,
+  // maxReach: 560, dustCount: 32, y: 12). windowWidth still scales with
+  // canvas width on portrait so the cone doesn't dominate narrow phones.
   const light = new EntranceLight(app, {
     x: W / 2,
-    y: 6,
-    windowWidth: lightW * 0.75,
+    y: 12,
+    windowWidth: portrait ? Math.min(244, W * 0.36) : 244,
     maxReach: Math.min(H * 0.88, 560),
-    dustCount: portrait ? 22 : 28,
+    dustCount: portrait ? 24 : 32,
   })
   stage.addChild(light.container)
   // Ambient sits on top of everything (including private door / storage chip)

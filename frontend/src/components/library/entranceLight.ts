@@ -2,15 +2,17 @@
 //  EntranceLight  ·  Pixi.js v8
 //  도서관 입구로 들어오는 자연광 효과 (낮 / 저녁 / 밤)
 //
-//  5 레이어:
+//  4 레이어:
 //    1. ambient   — MULTIPLY로 캔버스 전체 톤·어둡기 (시간대 분위기 핵심)
 //    2. cone      — 메인 빛 원뿔 (canvas로 베이크한 trapezoidal 그라디언트)
-//    3. rays      — 부채꼴 god ray 5개
-//    4. hotspot   — 입구 바로 아래 radial 핫스팟
-//    5. dust      — 빛 속 떠다니는 먼지 입자 28개
+//    3. hotspot   — 입구 바로 아래 radial 핫스팟
+//    4. dust      — 빛 속 떠다니는 먼지 입자
 //
-//  ticker 등록 시: flicker · breathe · dust drift · ray wobble 라이브 애니메이션
+//  ticker 등록 시: flicker · breathe · dust drift 라이브 애니메이션
 //  시간대 전환 시 lerp 보간 (color, alpha, scale 모두)
+//
+//  Note: god ray 부채꼴(5개) 레이어는 두 번째 디자인 시안 대비 너무
+//  강조돼 부드러운 둥근 광원 인상이 깨져서 제거함.
 // ────────────────────────────────────────────────────────────────────────
 
 import {
@@ -28,10 +30,8 @@ export interface EntrancePreset {
   label: string
   coneColor: number       // 메인 원뿔 tint
   hotspotColor: number    // 입구 바로 아래 핫스팟 + 먼지 색
-  rayColor: number        // god ray tint
   coneAlpha: number
   hotspotAlpha: number
-  rayAlpha: number
   coneScaleY: number      // 빛이 닿는 거리 (1.0 기준)
   coneSpread: number      // 좌우 퍼짐
   ambientColor: number    // 방 전체에 입혀지는 색조
@@ -47,10 +47,8 @@ export const ENTRANCE_PRESETS: Record<EntrancePresetName, EntrancePreset> = {
     label: '낮',
     coneColor:    0xFFE9B0,
     hotspotColor: 0xFFF6D8,
-    rayColor:     0xFFE3A0,
     coneAlpha:    0.78,
     hotspotAlpha: 0.55,
-    rayAlpha:     0.18,
     coneScaleY:   1.0,
     coneSpread:   1.0,
     ambientColor: 0xFFF1D0,
@@ -64,10 +62,8 @@ export const ENTRANCE_PRESETS: Record<EntrancePresetName, EntrancePreset> = {
     label: '저녁',
     coneColor:    0xFF8A45,
     hotspotColor: 0xFFB070,
-    rayColor:     0xFF7028,
     coneAlpha:    0.62,
     hotspotAlpha: 0.42,
-    rayAlpha:     0.22,
     coneScaleY:   1.25,
     coneSpread:   1.15,
     ambientColor: 0xC04020,
@@ -81,10 +77,8 @@ export const ENTRANCE_PRESETS: Record<EntrancePresetName, EntrancePreset> = {
     label: '밤',
     coneColor:    0xA8C4ED,
     hotspotColor: 0xD4E2F6,
-    rayColor:     0x88AEE0,
     coneAlpha:    0.55,
     hotspotAlpha: 0.42,
-    rayAlpha:     0.14,
     coneScaleY:   0.92,
     coneSpread:   1.00,
     ambientColor: 0x2A3A5E,
@@ -113,10 +107,6 @@ interface DustParticle {
   size: number
 }
 
-interface RayWithBase extends Sprite {
-  _baseAlpha: number
-}
-
 export class EntranceLight {
   readonly container: Container
 
@@ -128,7 +118,6 @@ export class EntranceLight {
 
   private ambient: Graphics
   private cone: Sprite
-  private rays: Container
   private hotspot: Sprite
   private dust: Container
   private dustParticles: DustParticle[] = []
@@ -164,22 +153,7 @@ export class EntranceLight {
     this.cone.width = this.windowWidth * 3.4
     this.cone.height = this.maxReach
 
-    // 3) rays — god ray 5개 (부채꼴 살짝 벌어지게)
-    this.rays = new Container()
-    for (let i = 0; i < 5; i++) {
-      const ray = new Sprite(EntranceLight.rayTexture()) as RayWithBase
-      ray.anchor.set(0.5, 0)
-      ray.x = this.cx + (i - 2) * (this.windowWidth * 0.18)
-      ray.y = this.cy
-      ray.width = 26
-      ray.height = this.maxReach * 0.95
-      ray.rotation = (i - 2) * 0.045
-      ray.blendMode = 'add'
-      ray._baseAlpha = 1 - Math.abs(i - 2) * 0.15
-      this.rays.addChild(ray)
-    }
-
-    // 4) hotspot — 입구 바로 아래 radial 핫스팟
+    // 3) hotspot — 입구 바로 아래 radial 핫스팟
     this.hotspot = new Sprite(EntranceLight.hotspotTexture())
     this.hotspot.anchor.set(0.5, 0.3)
     this.hotspot.blendMode = 'add'
@@ -188,7 +162,7 @@ export class EntranceLight {
     this.hotspot.width = this.windowWidth * 1.6
     this.hotspot.height = 180
 
-    // 5) dust — 빛 속 떠다니는 먼지 입자
+    // 4) dust — 빛 속 떠다니는 먼지 입자
     this.dust = new Container()
     const dustCount = opts.dustCount ?? 28
     for (let i = 0; i < dustCount; i++) {
@@ -207,9 +181,9 @@ export class EntranceLight {
       })
     }
 
-    this.container.addChild(this.cone, this.rays, this.hotspot, this.dust)
+    this.container.addChild(this.cone, this.hotspot, this.dust)
     // ambient는 별도 — drawScene에서 stage의 맨 끝에 붙여 모든 요소 위로 깔리게.
-    // (cone/rays/hotspot/dust는 입구 부근만이라 이 컨테이너 안에서 순서대로)
+    // (cone/hotspot/dust는 입구 부근만이라 이 컨테이너 안에서 순서대로)
 
     this.cfg = ENTRANCE_PRESETS.day
     this.setPreset('day', true)
@@ -260,9 +234,6 @@ export class EntranceLight {
     this.cone.scale.y = (this.maxReach / coneTex.height) * c.coneScaleY
     this.cone.scale.x = ((this.windowWidth * 3.4) / coneTex.width) * c.coneSpread
     this.hotspot.tint = c.hotspotColor
-    this.rays.children.forEach((r) => {
-      ;(r as Sprite).tint = c.rayColor
-    })
     this.drawAmbient()
   }
 
@@ -302,7 +273,6 @@ export class EntranceLight {
         ...b,
         coneAlpha:    lerp(a.coneAlpha,    b.coneAlpha,    u),
         hotspotAlpha: lerp(a.hotspotAlpha, b.hotspotAlpha, u),
-        rayAlpha:     lerp(a.rayAlpha,     b.rayAlpha,     u),
         coneScaleY:   lerp(a.coneScaleY,   b.coneScaleY,   u),
         coneSpread:   lerp(a.coneSpread,   b.coneSpread,   u),
         ambientAlpha: lerp(a.ambientAlpha, b.ambientAlpha, u),
@@ -311,7 +281,6 @@ export class EntranceLight {
         flicker:      lerp(a.flicker,      b.flicker,      u),
         coneColor:    lerpColor(a.coneColor,    b.coneColor,    u),
         hotspotColor: lerpColor(a.hotspotColor, b.hotspotColor, u),
-        rayColor:     lerpColor(a.rayColor,     b.rayColor,     u),
         ambientColor: lerpColor(a.ambientColor, b.ambientColor, u),
       }
       this.applyStatic()
@@ -326,10 +295,6 @@ export class EntranceLight {
 
     this.cone.alpha = c.coneAlpha * f
     this.hotspot.alpha = c.hotspotAlpha * f
-    this.rays.children.forEach((r, i) => {
-      const wob = Math.sin(this.t * 0.015 + i * 1.7) * 0.15
-      ;(r as Sprite).alpha = c.rayAlpha * (r as RayWithBase)._baseAlpha * (1 + wob)
-    })
 
     // 먼지 부유
     for (const p of this.dustParticles) {
@@ -353,7 +318,6 @@ export class EntranceLight {
   // ── 텍스처 베이크 (정적 캐시, 한 번만 생성) ───────────
   private static __cone: Texture | null = null
   private static __hotspot: Texture | null = null
-  private static __ray: Texture | null = null
 
   private static coneTexture(): Texture {
     if (EntranceLight.__cone) return EntranceLight.__cone
@@ -406,29 +370,6 @@ export class EntranceLight {
     ctx.fillRect(0, 0, S, S)
     EntranceLight.__hotspot = Texture.from(c)
     return EntranceLight.__hotspot
-  }
-
-  private static rayTexture(): Texture {
-    if (EntranceLight.__ray) return EntranceLight.__ray
-    const W = 64
-    const H = 384
-    const c = document.createElement('canvas')
-    c.width = W
-    c.height = H
-    const ctx = c.getContext('2d')!
-    // 수평 가우시안 × 수직 감쇠
-    for (let y = 0; y < H; y++) {
-      const vt = y / H
-      const vert = Math.pow(1 - vt, 1.2)
-      const grad = ctx.createLinearGradient(0, 0, W, 0)
-      grad.addColorStop(0, 'rgba(255,255,255,0)')
-      grad.addColorStop(0.5, `rgba(255,255,255,${vert})`)
-      grad.addColorStop(1, 'rgba(255,255,255,0)')
-      ctx.fillStyle = grad
-      ctx.fillRect(0, y, W, 1)
-    }
-    EntranceLight.__ray = Texture.from(c)
-    return EntranceLight.__ray
   }
 }
 
